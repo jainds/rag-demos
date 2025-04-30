@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    # depends_on:
+    #   - evaluator
+    environment:
+      - LANGFUSE_PUBLIC_KEY=pk-lf-74b79fd5-201d-4ac7-aa05-8897ac79145b
+      - LANGFUSE_SECRET_KEY=sk-lf-6a5f7ce2-a28f-4f14-bfa3-b8d2fb7cfde0
+      - LANGFUSE_HOST=https://cloud.langfuse.com
+      - OPENROUTER_API_KEY=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
+      - OPENROUTER_MODEL=meta-llama/llama-3.2-1b-instruct
+
+  # evaluator:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile_evaluator
+  #   ports:
+  #     - "8001:8000" # Expose the evaluator service on port 8001
+  #   environment:
+  #     - LANGFUSE_PUBLIC_KEY=pk-lf-74b79fd5-201d-4ac7-aa05-8897ac79145b
+  #     - LANGFUSE_SECRET_KEY=sk-lf-6a5f7ce2-a28f-4f14-bfa3-b8d2fb7cfde0
+  #     - LANGFUSE_HOST=https://cloud.langfuse.com
