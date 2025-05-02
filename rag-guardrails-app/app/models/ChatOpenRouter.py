@@ -69,11 +69,40 @@ class ChatOpenRouter(BaseLanguageModel):
     model: str
     api_key: str
     base_url: str = "https://openrouter.ai/api/"
-    temperature: float = Field(default=0.7)  # Default value
-    max_tokens: int = Field(default=256)     # Default value
+    temperature: float = Field(default=0.7)
+    max_tokens: int = Field(default=1024)
+    top_p: float = Field(default=0.95)
+    frequency_penalty: float = Field(default=0)
+    presence_penalty: float = Field(default=0)
+    
+    def set_run_config(self, run_config=None, **kwargs):
+        """Set run configuration for the model."""
+        try:
+            if run_config is not None:
+                # If run_config is a RunConfig object, get its dict representation
+                config_dict = getattr(run_config, "__dict__", {})
+                # Update with any additional kwargs
+                config_dict.update(kwargs)
+            else:
+                config_dict = kwargs
 
-    class Config:
-        arbitrary_types_allowed = True
+            # Apply configuration
+            for key, value in config_dict.items():
+                if hasattr(self, key):
+                    setattr(self, key, value)
+        except Exception as e:
+            print(f"Warning: Error in set_run_config: {str(e)}")
+        return self
+
+    @property
+    def _identifying_params(self) -> Dict[str, Any]:
+        """Get identifying parameters."""
+        return {
+            "model": self.model,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "top_p": self.top_p
+        }
 
     @property
     def _llm_type(self) -> str:
@@ -269,26 +298,22 @@ class ChatOpenRouter(BaseLanguageModel):
             """Asynchronous call to the OpenRouter API."""
             # Unwrap PromptValue if present
             if isinstance(prompt, PromptValue):
-                prompt = prompt.text  # or prompt.content
+                prompt = prompt.text
 
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "HTTP-Referer": os.getenv("SITE_URL", "http://localhost:8000"),
-                "X-Title": "Your Application Name"
-            }
-
-            # Filter out non-serializable or unnecessary kwargs
-            filtered_kwargs = {
-                k: v for k, v in kwargs.items()
-                if not (isinstance(v, BaseCallbackManager) or "callback" in k.lower())
+                "X-Title": "RAG Guardrails API"
             }
 
             payload = {
                 "model": self.model,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": self.temperature,
-                "max_tokens": self.max_tokens,
-                **filtered_kwargs  # Only include safe, serializable kwargs
+                "temperature": kwargs.get("temperature", self.temperature),
+                "max_tokens": kwargs.get("max_tokens", self.max_tokens),
+                "top_p": kwargs.get("top_p", self.top_p),
+                "frequency_penalty": kwargs.get("frequency_penalty", self.frequency_penalty),
+                "presence_penalty": kwargs.get("presence_penalty", self.presence_penalty)
             }
             print(f"Payload: {payload}")
 

@@ -1,0 +1,24 @@
+define user express input
+  "{{ user_input }}"
+
+define bot express blocked
+  "I apologize, but I cannot respond to that type of input. Please rephrase your request in a more appropriate way."
+
+define bot express context error
+  "I apologize, but I need to provide a more context-relevant response. Let me try again."
+
+define bot refuse to respond
+  "I apologize, but I cannot respond to that type of request."
+
+define flow check user input
+  user express input
+  $allowed = execute self_check_input
+  if not $allowed
+    bot refuse to respond
+    stop
+
+define flow check context usage
+  $allowed = execute self_check_context
+  if not $allowed
+    bot express context error
+    stop 
