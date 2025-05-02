@@ -1,5 +1,6 @@
 import asyncio
-from ragas import evaluate
+import aiohttp
+from ragas import evaluate, SingleTurnSample
 from ragas.metrics import (
     Faithfulness,
     AnswerRelevancy,
@@ -12,17 +13,53 @@ import pandas as pd
 from app.models.ChatOpenRouter import ChatOpenRouter
 import os
 from dotenv import load_dotenv
-from datasets import Dataset
+import logging
+import math
+import pydantic
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_core.exceptions import OutputParserException
 
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
 load_dotenv()
+
+# Ensure OpenRouter API key is available
+openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")
+if not openrouter_api_key:
+    raise ValueError("OPENROUTER_API_KEY environment variable is not set")
 
 # Initialize OpenRouter for evaluation
 evaluation_model = ChatOpenRouter(
-    model="anthropic/claude-3-opus-20240229",
-    api_key=os.environ.get("OPENROUTER_API_KEY"),
+    model="opengvlab/internvl3-2b:free",
+    api_key=openrouter_api_key,
     temperature=0.1,
-    max_tokens=50
+    max_tokens=1000  # Increased for evaluation purposes
 )
+
+def clean_score(score_value: float) -> float:
+    """Clean score value to ensure JSON compatibility."""
+    if math.isnan(score_value) or math.isinf(score_value):
+        return 0.0
+    return float(score_value)
+
+def patch_metric_prompt(metric):
+    # Patch prompt for metrics that have a context_precision_prompt or context_recall_prompt
+    if hasattr(metric, "context_precision_prompt"):
+        orig = metric.context_precision_prompt.instruction
+        if "Return your answer as a JSON object" not in orig:
+            metric.context_precision_prompt.instruction = (
+                orig + "\n\nReturn your answer as a JSON object with the required fields."
+            )
+    if hasattr(metric, "context_recall_prompt"):
+        orig = metric.context_recall_prompt.instruction
+        if "Return your answer as a JSON object" not in orig:
+            metric.context_recall_prompt.instruction = (
+                orig + "\n\nReturn your answer as a JSON object with the required fields."
+            )
+    return metric
 
 async def evaluate_response(
     question: str,
@@ -32,67 +69,99 @@ async def evaluate_response(
     metrics: Optional[List[Any]] = None
 ) -> Dict[str, float]:
     """
-    Evaluate a RAG response using Ragas metrics.
-    
-    Args:
-        question: The input question
-        answer: The generated answer
-        contexts: List of context passages used to generate the answer
-        ground_truths: List of ground truth answers (optional)
-        metrics: List of metric objects to evaluate (optional)
-        
-    Returns:
-        Dictionary containing evaluation scores
+    Evaluate a single RAG response.
     """
-    # Validate metrics if provided
-    if metrics is not None:
-        if not all(hasattr(m, 'init') for m in metrics):
-            raise TypeError("Invalid metrics provided. Each metric must be a valid Ragas metric object.")
+    logger.info("Starting evaluation with:")
+    logger.info(f"Question: {question}")
+    logger.info(f"Answer: {answer}")
+    logger.info(f"Contexts: {contexts}")
+    logger.info(f"Ground truths: {ground_truths}")
+    
+    # Ensure inputs are strings
+    question = str(question)
+    answer = str(answer)
+    
+    # Ensure contexts and ground_truths are lists of strings
+    contexts = [str(ctx) for ctx in (contexts or [])]
+    ground_truths = [str(gt) for gt in (ground_truths or [])]
+    
+    # Join contexts into string for metrics that expect it
+    contexts_str = "\n".join(contexts)
     
     # Default metrics if none specified
     if metrics is None:
+        embedder = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         metrics = [
             Faithfulness(llm=evaluation_model),
-            AnswerRelevancy(llm=evaluation_model),
-            ContextPrecision(llm=evaluation_model),
-            ContextRecall(llm=evaluation_model),
+            AnswerRelevancy(llm=evaluation_model, embeddings=embedder),
+            patch_metric_prompt(ContextPrecision(llm=evaluation_model)),
+            patch_metric_prompt(ContextRecall(llm=evaluation_model)),
             ContextRelevance(llm=evaluation_model)
         ]
-    
-    # Prepare test data with correct column names and format
-    test_data = {
-        "question": [question],
-        "answer": [answer],
-        "contexts": [contexts if contexts else []],
-        "ground_truths": [[gt] for gt in (ground_truths if ground_truths else [""])]
-    }
-    
-    # Convert to pandas DataFrame first
-    df = pd.DataFrame(test_data)
-    
-    # Convert DataFrame to Dataset
-    test_dataset = Dataset.from_pandas(df)
+        logger.info("Using default metrics:")
+        for m in metrics:
+            logger.info(f"- {m.__class__.__name__}")
     
     # Run evaluation
     try:
-        # Create a dictionary to store results
         results = {}
         
         # Evaluate each metric individually
         for metric in metrics:
             try:
-                score = await metric.single_turn_ascore(test_dataset)
-                if isinstance(score, pd.Series):
-                    results[metric.__class__.__name__.lower()] = float(score.iloc[0])
+                logger.info(f"Evaluating metric: {metric.__class__.__name__}")
+                if not hasattr(metric, 'single_turn_ascore'):
+                    raise TypeError(f"Metric {metric.__class__.__name__} does not implement required method 'single_turn_ascore'")
+                # Prepare row as dict of scalars
+                row = {
+                    "question": question,
+                    "answer": answer,
+                    "contexts": contexts_str,
+                    "ground_truths": ground_truths[0] if ground_truths else "",
+                    "user_input": question,
+                    "response": answer,
+                    "retrieved_contexts": contexts_str,
+                    "reference": ground_truths[0] if ground_truths else ""
+                }
+                # Ensure all values are strings
+                for k, v in row.items():
+                    if not isinstance(v, str):
+                        row[k] = str(v)
+                # If metric is a Ragas metric, pass SingleTurnSample
+                ragas_metric_classes = (
+                    Faithfulness, AnswerRelevancy, ContextPrecision, ContextRecall, ContextRelevance
+                )
+                if isinstance(metric, ragas_metric_classes):
+                    sample = SingleTurnSample(
+                        question=row["question"],
+                        answer=row["answer"],
+                        contexts=contexts,
+                        ground_truths=ground_truths,
+                        user_input=row["user_input"],
+                        retrieved_contexts=contexts,
+                        response=row["answer"],
+                        reference=ground_truths[0] if ground_truths else ""
+                    )
+                    score = await metric.single_turn_ascore(sample)
                 else:
-                    results[metric.__class__.__name__.lower()] = float(score)
-            except Exception as e:
-                print(f"Error evaluating metric {metric.__class__.__name__}: {str(e)}")
+                    score = await metric.single_turn_ascore(row)
+                logger.info(f"Raw score type: {type(score)}, value: {score}")
+                if isinstance(score, (float, int)):
+                    score_value = clean_score(float(score))
+                else:
+                    score_value = clean_score(float(score[0]))
+                results[metric.__class__.__name__.lower()] = score_value
+                logger.info(f"Final processed score for {metric.__class__.__name__}: {score_value}")
+            except (NotImplementedError, pydantic.ValidationError, TypeError, ValueError, AttributeError, OutputParserException) as e:
+                logger.error(f"Error evaluating metric {metric.__class__.__name__}: {str(e)}")
+                logger.error(f"Error type: {type(e)}")
+                logger.exception("Full traceback:")
                 results[metric.__class__.__name__.lower()] = 0.0
-                
         return results
     except Exception as e:
-        print(f"Evaluation error: {str(e)}")
+        logger.error(f"Evaluation error: {str(e)}")
+        logger.error(f"Error type: {type(e)}")
+        logger.exception("Full traceback:")
         return {}
 
 async def batch_evaluate_responses(
@@ -104,17 +173,13 @@ async def batch_evaluate_responses(
 ) -> Dict[str, List[float]]:
     """
     Batch evaluate multiple RAG responses.
-    
-    Args:
-        questions: List of input questions
-        answers: List of generated answers
-        contexts: List of context passages for each answer
-        ground_truths: List of ground truth answers for each question
-        metrics: List of metric objects to evaluate
-        
-    Returns:
-        Dictionary containing evaluation scores for each response
     """
+    logger.info("Starting batch evaluation with:")
+    logger.info(f"Questions length: {len(questions)}")
+    logger.info(f"Answers length: {len(answers)}")
+    logger.info(f"Contexts length: {len(contexts) if contexts else 0}")
+    logger.info(f"Ground truths length: {len(ground_truths) if ground_truths else 0}")
+    
     if not questions or not answers:
         raise ValueError("Questions and answers lists cannot be empty")
         
@@ -127,53 +192,80 @@ async def batch_evaluate_responses(
     if ground_truths and len(ground_truths) != len(questions):
         raise ValueError("Number of ground truths must match number of questions")
     
-    # Validate metrics if provided
-    if metrics is not None:
-        if not all(hasattr(m, 'init') for m in metrics):
-            raise TypeError("Invalid metrics provided. Each metric must be a valid Ragas metric object.")
+    # Ensure inputs are strings
+    questions = [str(q) for q in questions]
+    answers = [str(a) for a in answers]
+    
+    # Ensure contexts and ground_truths are lists of lists of strings
+    contexts = [[str(ctx) for ctx in ctx_list] for ctx_list in (contexts or [[]] * len(questions))]
+    ground_truths = [[str(gt) for gt in gt_list] for gt_list in (ground_truths or [[]] * len(questions))]
+    
+    # Join contexts into strings for metrics that expect it
+    contexts_str = ["\n".join(ctx_list) for ctx_list in contexts]
     
     # Default metrics if none specified
     if metrics is None:
+        embedder = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         metrics = [
             Faithfulness(llm=evaluation_model),
-            AnswerRelevancy(llm=evaluation_model),
-            ContextPrecision(llm=evaluation_model),
-            ContextRecall(llm=evaluation_model),
+            AnswerRelevancy(llm=evaluation_model, embeddings=embedder),
+            patch_metric_prompt(ContextPrecision(llm=evaluation_model)),
+            patch_metric_prompt(ContextRecall(llm=evaluation_model)),
             ContextRelevance(llm=evaluation_model)
         ]
-    
-    # Prepare test data with correct column names and format
-    test_data = {
-        "question": questions,
-        "answer": answers,
-        "contexts": contexts if contexts else [[] for _ in questions],
-        "ground_truths": [[gt] if gt else [""] for gt in (ground_truths if ground_truths else [[""] for _ in questions])]
-    }
-    
-    # Convert to pandas DataFrame first
-    df = pd.DataFrame(test_data)
-    
-    # Convert DataFrame to Dataset
-    test_dataset = Dataset.from_pandas(df)
+        logger.info("Using default metrics:")
+        for m in metrics:
+            logger.info(f"- {m.__class__.__name__}")
     
     # Run evaluation
     try:
-        # Create a dictionary to store results
         results = {}
         
         # Evaluate each metric individually
         for metric in metrics:
             try:
-                scores = await metric.single_turn_ascore(test_dataset)
-                if isinstance(scores, pd.Series):
-                    results[metric.__class__.__name__.lower()] = [float(score) for score in scores.tolist()]
-                else:
-                    results[metric.__class__.__name__.lower()] = [float(scores)] * len(questions)
-            except Exception as e:
-                print(f"Error evaluating metric {metric.__class__.__name__}: {str(e)}")
+                logger.info(f"Evaluating metric: {metric.__class__.__name__}")
+                
+                # Validate metric type
+                if not hasattr(metric, 'single_turn_ascore'):
+                    raise TypeError(f"Metric {metric.__class__.__name__} does not implement required method 'single_turn_ascore'")
+                
+                scores = []
+                for i in range(len(questions)):
+                    row = {
+                        "question": questions[i],
+                        "answer": answers[i],
+                        "contexts": contexts_str[i],
+                        "ground_truths": ground_truths[i][0] if ground_truths[i] else "",
+                        "user_input": questions[i],
+                        "response": answers[i],
+                        "retrieved_contexts": contexts_str[i],
+                        "reference": ground_truths[i][0] if ground_truths[i] else ""
+                    }
+                    try:
+                        score = await metric.single_turn_ascore(row)
+                    except Exception as e:
+                        logger.info(f"Falling back to ascore for {metric.__class__.__name__}: {str(e)}")
+                        df = pd.DataFrame([row])
+                        score = await metric.ascore(df)
+                    if isinstance(score, pd.Series):
+                        scores.append(clean_score(float(score.iloc[0])))
+                    elif isinstance(score, (float, int)):
+                        scores.append(clean_score(float(score)))
+                    else:
+                        scores.append(clean_score(float(score[0])))
+                results[metric.__class__.__name__.lower()] = scores
+                logger.info(f"Final processed scores for {metric.__class__.__name__}: {scores}")
+                    
+            except (NotImplementedError, pydantic.ValidationError, TypeError, ValueError, AttributeError, OutputParserException) as e:
+                logger.error(f"Error evaluating metric {metric.__class__.__name__}: {str(e)}")
+                logger.error(f"Error type: {type(e)}")
+                logger.exception("Full traceback:")
                 results[metric.__class__.__name__.lower()] = [0.0] * len(questions)
                 
         return results
     except Exception as e:
-        print(f"Evaluation error: {str(e)}")
+        logger.error(f"Batch evaluation error: {str(e)}")
+        logger.error(f"Error type: {type(e)}")
+        logger.exception("Full traceback:")
         return {}

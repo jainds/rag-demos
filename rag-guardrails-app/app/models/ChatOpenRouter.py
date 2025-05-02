@@ -29,23 +29,7 @@
 from typing import Any, Optional, List, Dict, Iterator, Union
 import json
 import os
-from requests import request
-from fastapi import HTTPException
-from langchain_core.language_models.base import BaseLanguageModel
-from langchain_core.outputs import GenerationChunk, LLMResult
-from langchain_core.callbacks.manager import (
-    CallbackManagerForLLMRun,
-    AsyncCallbackManagerForLLMRun
-)
 import aiohttp
-# from langchain_core.language_models.llms import BaseLLM
-
-# Import Nemo Guardrails LLM Provider if needed
-# from nemoguardrails.llm.providers.base import LLMProvider
-from typing import Any, List, Optional, Dict, Iterator, Union
-from pydantic import Field
-import json
-import os
 from requests import request
 from fastapi import HTTPException
 from langchain_core.language_models.base import BaseLanguageModel
@@ -57,36 +41,71 @@ from langchain_core.callbacks.manager import (
 from langchain_core.prompt_values import PromptValue
 from langchain_core.messages import BaseMessage
 from langchain_core.callbacks.base import BaseCallbackManager
+from pydantic import BaseModel, Field
 
+class ChatOpenRouterConfig(BaseModel):
+    """Configuration for ChatOpenRouter."""
+    model: str
+    api_key: str
+    base_url: str = Field(default="https://openrouter.ai/api/v1")
+    temperature: float = Field(default=0.1)
+    max_tokens: int = Field(default=1000)
+    top_p: float = Field(default=0.95)
+    frequency_penalty: float = Field(default=0)
+    presence_penalty: float = Field(default=0)
 
+    class Config:
+        arbitrary_types_allowed = True
 
 class ChatOpenRouter(BaseLanguageModel):
     """
     A custom LLM provider that integrates with OpenRouter.
-    Full compatibility with LangChain's BaseLanguageModel.
+    Full compatibility with LangChain's BaseLanguageModel and Ragas metrics.
     """
-
-    model: str
-    api_key: str
-    base_url: str = "https://openrouter.ai/api/"
-    temperature: float = Field(default=0.7)
-    max_tokens: int = Field(default=1024)
-    top_p: float = Field(default=0.95)
-    frequency_penalty: float = Field(default=0)
-    presence_penalty: float = Field(default=0)
     
+    model: str = Field(default="opengvlab/internvl3-2b:free", description="The model identifier to use with OpenRouter")
+    api_key: str = Field(default=os.environ.get("OPENROUTER_API_KEY"), description="API key for OpenRouter")
+    temperature: float = Field(default=0.1, description="Sampling temperature")
+    max_tokens: int = Field(default=1000, description="Maximum number of tokens to generate")
+    top_p: float = Field(default=0.95, description="Top p sampling parameter")
+    frequency_penalty: float = Field(default=0, description="Frequency penalty parameter")
+    presence_penalty: float = Field(default=0, description="Presence penalty parameter")
+    base_url: str = Field(default="https://openrouter.ai/api/v1", description="Base URL for OpenRouter API")
+
+    def __init__(
+        self,
+        model: str,
+        api_key: str,
+        temperature: float = 0.1,
+        max_tokens: int = 1000,
+        top_p: float = 0.95,
+        frequency_penalty: float = 0,
+        presence_penalty: float = 0,
+        base_url: str = "https://openrouter.ai/api/v1",
+        **kwargs
+    ):
+        """Initialize the ChatOpenRouter."""
+        super().__init__(
+            model=model,
+            api_key=api_key,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
+            base_url=base_url,
+            **kwargs
+        )
+
     def set_run_config(self, run_config=None, **kwargs):
         """Set run configuration for the model."""
         try:
             if run_config is not None:
-                # If run_config is a RunConfig object, get its dict representation
                 config_dict = getattr(run_config, "__dict__", {})
-                # Update with any additional kwargs
                 config_dict.update(kwargs)
             else:
                 config_dict = kwargs
 
-            # Apply configuration
             for key, value in config_dict.items():
                 if hasattr(self, key):
                     setattr(self, key, value)
@@ -114,9 +133,8 @@ class ChatOpenRouter(BaseLanguageModel):
         stop: Optional[List[str]] = None,
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
-                        ) -> str:
+    ) -> str:
         """Synchronous call to the OpenRouter API."""
-        # Unwrap StringPromptValue if present
         try:
             prompt = prompt.text  # Try .text (used in some LangChain versions)
         except AttributeError:
@@ -131,17 +149,20 @@ class ChatOpenRouter(BaseLanguageModel):
             "X-Title": "Your Application Name"
         }
 
+        # Filter out non-serializable kwargs
+        filtered_kwargs = {k: v for k, v in kwargs.items() if not isinstance(v, (BaseCallbackManager, CallbackManagerForLLMRun))}
+
         payload = {
             "model": self.model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": str(prompt)}],
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
-            **kwargs
+            **filtered_kwargs
         }
 
         response = request(
             method="POST",
-            url=f"{self.base_url}/v1/chat/completions",
+            url=f"{self.base_url}/chat/completions",
             headers=headers,
             json=payload,
             timeout=30,
@@ -163,29 +184,64 @@ class ChatOpenRouter(BaseLanguageModel):
         run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any
     ) -> LLMResult:
-        """Asynchronous API call (not implemented for now)."""
-        raise NotImplementedError("Streaming or async not implemented")
+        """Generate results for multiple prompts asynchronously."""
+        generations = []
+        for prompt in prompts:
+            content = await self._async_call(prompt, stop, run_manager, **kwargs)
+            generations.append([GenerationChunk(text=content)])
+        return LLMResult(generations=generations)
     
-    async def agenerate(
-            self,
-            messages: List[BaseMessage],
-            stop: Optional[List[str]] = None,
-            run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
-            **kwargs: Any
-        ) -> LLMResult:
-            """Asynchronous generation from chat messages."""
-            generations = []
-            for msg in messages:
-                prompt = msg.content
+    async def _async_call(
+        self,
+        prompt: Union[str, PromptValue],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> str:
+        """Asynchronous call to the OpenRouter API."""
+        try:
+            prompt = prompt.text  # Try .text (used in some LangChain versions)
+        except AttributeError:
+            try:
+                prompt = prompt.content  # Try .content (used in others)
+            except AttributeError:
+                pass  # Leave as-is if not a prompt object
 
-                # Unwrap PromptValue if present
-                if isinstance(prompt, PromptValue):
-                    prompt = prompt.text  # or prompt.content
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "HTTP-Referer": os.getenv("SITE_URL", "http://localhost:8000"),
+            "X-Title": "Your Application Name"
+        }
 
-                content = await self._async_call(prompt, stop=stop, run_manager=run_manager, **kwargs)
-                generations.append([GenerationChunk(text=content)])
-            return LLMResult(generations=generations)
+        # Filter out non-serializable kwargs
+        filtered_kwargs = {k: v for k, v in kwargs.items() if not isinstance(v, (BaseCallbackManager, AsyncCallbackManagerForLLMRun))}
 
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": str(prompt)}],
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            **filtered_kwargs
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=30,
+            ) as response:
+                if response.status != 200:
+                    text = await response.text()
+                    raise HTTPException(
+                        status_code=response.status,
+                        detail=text
+                    )
+                result = await response.json()
+                # Defensive: handle malformed response
+                if not result or "choices" not in result or not result["choices"]:
+                    raise ValueError(f"Malformed response from OpenRouter: {result}")
+                return result["choices"][0]["message"]["content"]
 
     def _generate(
         self,
@@ -201,35 +257,33 @@ class ChatOpenRouter(BaseLanguageModel):
             generations.append([GenerationChunk(text=content)])
         return LLMResult(generations=generations)
 
-    def _stream(
+    async def generate(
         self,
         prompt: str,
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any
-    ) -> Iterator[GenerationChunk]:
-        """Stream not implemented."""
-        raise NotImplementedError("Streaming not supported")
+    ) -> 'LLMResult':
+        """Async generate method required by Ragas metrics. Returns LLMResult."""
+        content = await self._async_call(prompt, **kwargs)
+        generations = [[GenerationChunk(text=content)]]
+        return LLMResult(generations=generations)
+
+    async def agenerate(
+        self,
+        prompt: str,
+        **kwargs: Any
+    ) -> 'LLMResult':
+        from langchain_core.outputs import LLMResult, GenerationChunk
+        content = await self._async_call(prompt, **kwargs)
+        generations = [[GenerationChunk(text=content)]]
+        return LLMResult(generations=generations)
 
     def get_num_tokens(self, text: str) -> int:
-        """Estimate vailable token count (not implemented)."""
+        """Estimate available token count."""
         return len(text.split())  
 
     def get_token_ids(self, text: str) -> List[int]:
-        """Return token IDs (not implemented)."""
+        """Return token IDs."""
         return [hash(text)] 
-
-    def get_all_token_ids(self, text: str) -> Dict[str, List[int]]:
-        """List of token IDs per token (not implemented)."""
-        raise NotImplementedError("Detailed token info not implemented")
-
-    def get_callback_manager(self) -> Any:
-        """Callback manager (not implemented)."""
-        return None
-
-    def run(self, *args, **kwargs):
-        """Allow transformation of inputs."""
-        return self._call(*args, **kwargs)
 
     def invoke(self, input: str, **kwargs) -> str:
         """Invoke the model with input string."""
@@ -287,57 +341,56 @@ class ChatOpenRouter(BaseLanguageModel):
 
             return await self._async_call(prompt, **kwargs)
 
-
-    async def _async_call(
-            self,
-            prompt: Union[str, PromptValue],
-            stop: Optional[List[str]] = None,
-            run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
-            **kwargs: Any,
-        ) -> str:
-            """Asynchronous call to the OpenRouter API."""
-            # Unwrap PromptValue if present
-            if isinstance(prompt, PromptValue):
-                prompt = prompt.text
-
+    async def agenerate_text(
+        self,
+        prompt: str,
+        **kwargs: Any
+    ) -> str:
+        """
+        Asynchronously generate text from a prompt.
+        This method is required by Ragas metrics.
+        """
+        try:
+            prompt = str(prompt)  # Ensure prompt is a string
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "HTTP-Referer": os.getenv("SITE_URL", "http://localhost:8000"),
-                "X-Title": "RAG Guardrails API"
+                "X-Title": "Your Application Name"
             }
+
+            # Filter out non-serializable kwargs
+            filtered_kwargs = {k: v for k, v in kwargs.items() 
+                            if not isinstance(v, (BaseCallbackManager, AsyncCallbackManagerForLLMRun))}
 
             payload = {
                 "model": self.model,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": kwargs.get("temperature", self.temperature),
-                "max_tokens": kwargs.get("max_tokens", self.max_tokens),
-                "top_p": kwargs.get("top_p", self.top_p),
-                "frequency_penalty": kwargs.get("frequency_penalty", self.frequency_penalty),
-                "presence_penalty": kwargs.get("presence_penalty", self.presence_penalty)
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+                **filtered_kwargs
             }
-            print(f"Payload: {payload}")
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    url=f"https://openrouter.ai/api/v1/chat/completions",
+                    f"{self.base_url}/chat/completions",
                     headers=headers,
                     json=payload,
-                    timeout=30,
+                    timeout=30
                 ) as response:
                     if response.status != 200:
-                        print(f"Error: {response.text}")
+                        error_text = await response.text()
                         raise HTTPException(
                             status_code=response.status,
-                            detail=await response.text()
+                            detail=error_text
                         )
-                    print(f"Response: {response}")
                     result = await response.json()
-                    print(f"Result: {result}")
+                    if not result or "choices" not in result or not result["choices"]:
+                        raise ValueError(f"Malformed response from OpenRouter: {result}")
                     return result["choices"][0]["message"]["content"]
 
-
-
-
+        except Exception as e:
+            print(f"Error in agenerate_text: {str(e)}")
+            return ""
 
     # def __init__(self, api_key: str, model: str, **kwargs):
     #     super().__init__(**kwargs)
