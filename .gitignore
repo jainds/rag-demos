@@ -176,3 +176,8 @@ cython_debug/
 .traces
 rag-guardrails-app/.env.test
 rag-guardrails-app/conda-rag-demo.txt
+rag-guardrails-app/data/vector_index.faiss
+data/vector_index.faiss
+rag-guardrails-app/data/vector_index.faiss
+rag-guardrails-app/data/vector_index.faiss
+.faiss

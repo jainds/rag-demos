@@ -43,26 +43,21 @@ openrouter_provider = ChatOpenRouter(
 
 register_llm_provider("custom_llm", ChatOpenRouter)
 
-
-try:
-    
-    # Load FAISS index
-    index = faiss.read_index("data/vector_index.faiss")
-    
-    # Load documents from JSON
-    with open("data/documents.json", "r", encoding="utf-8") as f:
+def get_faiss_index_and_documents(index_path="data/vector_index.faiss", documents_path="data/documents.json"):
+    if not os.path.exists(index_path):
+        raise FileNotFoundError(f"FAISS index not found at {index_path}")
+    if not os.path.exists(documents_path):
+        raise FileNotFoundError(f"Documents file not found at {documents_path}")
+    index = faiss.read_index(index_path)
+    with open(documents_path, "r", encoding="utf-8") as f:
         documents = json.load(f)
-    
     if not isinstance(documents, list):
         raise ValueError("Documents JSON must be a list")
-        
-except FileNotFoundError as e:
-    raise RuntimeError("Required files not found. Please ensure:")
-    raise RuntimeError("1. data/vector_index.faiss exists")
-    raise RuntimeError("2. data/documents.json exists and is valid JSON")
+    return index, documents
 
 @observe(as_type="generation")
-async def rag_pipeline(query):
+async def rag_pipeline(query, index_path="data/vector_index.faiss", documents_path="data/documents.json"):
+    index, documents = get_faiss_index_and_documents(index_path, documents_path)
     query_vector = model.encode([query])
     _, indices = index.search(query_vector, 2)
     retrieved_docs = [documents[i] for i in indices[0]]
@@ -82,24 +77,11 @@ async def rag_pipeline(query):
 )
 
     try:
-        # nest_asyncio.apply()
         app = LLMRails(config,llm=openrouter_provider, verbose=False)
-
         response = await app.generate_async(
                                  messages=[{"role": "user", "content": f"{query}"}])
-        # response = completion(
-        #             model=os.environ.get("OPENROUTER_MODEL"),
-        #             messages=messages,
-        #             api_key=os.environ.get("OPENROUTER_API_KEY")
-        #         )
         print(response)
         answer = response
-
-        # langfuse_context.update_current_observation(
-        #         usage_details={
-        #             "input": response.usage.prompt_tokens,
-        #             "output": response.usage.completion_tokens
-        #         })
         return answer
     except Exception as e:
         raise e

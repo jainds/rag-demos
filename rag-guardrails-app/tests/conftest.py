@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 import time
 import faiss
 import numpy as np
+import json
 
 # Always load .env.test if it exists, else .env
 DOTENV_PATH = Path(__file__).parent.parent / ".env.test"
@@ -118,8 +119,19 @@ def test_openrouter_api_key_validity():
 def create_faiss_index():
     """Create a dummy FAISS index at data/vector_index.faiss for integration tests."""
     os.makedirs("data", exist_ok=True)
-    dim = 128
+    dim = 384
     xb = np.random.random((10, dim)).astype('float32')
     index = faiss.IndexFlatL2(dim)
     index.add(xb)
     faiss.write_index(index, "data/vector_index.faiss")
+
+@pytest.fixture(scope="session", autouse=True)
+def create_documents_json():
+    """Create a dummy documents.json at data/documents.json for integration tests."""
+    os.makedirs("data", exist_ok=True)
+    docs = [
+        {"text": f"Dummy document {i}", "source": f"doc{i}.txt"}
+        for i in range(10)
+    ]
+    with open("data/documents.json", "w", encoding="utf-8") as f:
+        json.dump(docs, f)
