@@ -27,9 +27,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r rag-guardrails-app/requirements.txt
-      - name: Install test dependencies
-        run: pip install pytest pytest-asyncio anyio
+          pip install .[test]
+        working-directory: rag-guardrails-app
       - name: Check for required secrets
         run: |
           if [ -z "$OPENROUTER_API_KEY" ] || [ -z "$OPENROUTER_MODEL" ]; then
