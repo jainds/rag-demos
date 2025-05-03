@@ -175,3 +175,4 @@ cython_debug/
 .history
 .traces
 rag-guardrails-app/.env.test
+rag-guardrails-app/conda-rag-demo.txt
