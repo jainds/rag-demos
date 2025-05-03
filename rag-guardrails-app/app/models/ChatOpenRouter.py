@@ -42,6 +42,9 @@ from langchain_core.prompt_values import PromptValue
 from langchain_core.messages import BaseMessage
 from langchain_core.callbacks.base import BaseCallbackManager
 from pydantic import BaseModel, Field
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ChatOpenRouterConfig(BaseModel):
     """Configuration for ChatOpenRouter."""
@@ -134,7 +137,7 @@ class ChatOpenRouter(BaseLanguageModel):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> str:
-        """Synchronous call to the OpenRouter API."""
+        logger.debug(f"ChatOpenRouter._call called with prompt: {prompt}")
         try:
             prompt = prompt.text  # Try .text (used in some LangChain versions)
         except AttributeError:
@@ -175,7 +178,15 @@ class ChatOpenRouter(BaseLanguageModel):
             )
 
         result = response.json()
+        logger.debug(f"ChatOpenRouter._call returning type: {type(result['choices'][0]['message']['content'])}")
         return result["choices"][0]["message"]["content"]
+
+    def _ensure_llmresult(self, result):
+        if isinstance(result, LLMResult):
+            return result
+        if isinstance(result, str):
+            return LLMResult(generations=[[GenerationChunk(text=result)]])
+        raise ValueError(f"Unexpected LLM result type: {type(result)}")
 
     async def _agenerate(
         self,
@@ -198,7 +209,7 @@ class ChatOpenRouter(BaseLanguageModel):
         run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> str:
-        """Asynchronous call to the OpenRouter API."""
+        logger.debug(f"ChatOpenRouter._async_call called with prompt: {prompt}")
         try:
             prompt = prompt.text  # Try .text (used in some LangChain versions)
         except AttributeError:
@@ -241,6 +252,7 @@ class ChatOpenRouter(BaseLanguageModel):
                 # Defensive: handle malformed response
                 if not result or "choices" not in result or not result["choices"]:
                     raise ValueError(f"Malformed response from OpenRouter: {result}")
+                logger.debug(f"ChatOpenRouter._async_call returning type: {type(result['choices'][0]['message']['content'])}")
                 return result["choices"][0]["message"]["content"]
 
     def _generate(
@@ -261,21 +273,21 @@ class ChatOpenRouter(BaseLanguageModel):
         self,
         prompt: str,
         **kwargs: Any
-    ) -> 'LLMResult':
-        """Async generate method required by Ragas metrics. Returns LLMResult."""
+    ) -> LLMResult:
+        logger.debug(f"ChatOpenRouter.generate called with prompt: {prompt}")
         content = await self._async_call(prompt, **kwargs)
-        generations = [[GenerationChunk(text=content)]]
-        return LLMResult(generations=generations)
+        logger.debug(f"ChatOpenRouter.generate _async_call returned type: {type(content)}")
+        return self._ensure_llmresult(content)
 
     async def agenerate(
         self,
         prompt: str,
         **kwargs: Any
-    ) -> 'LLMResult':
-        from langchain_core.outputs import LLMResult, GenerationChunk
+    ) -> LLMResult:
+        logger.debug(f"ChatOpenRouter.agenerate called with prompt: {prompt}")
         content = await self._async_call(prompt, **kwargs)
-        generations = [[GenerationChunk(text=content)]]
-        return LLMResult(generations=generations)
+        logger.debug(f"ChatOpenRouter.agenerate _async_call returned type: {type(content)}")
+        return self._ensure_llmresult(content)
 
     def get_num_tokens(self, text: str) -> int:
         """Estimate available token count."""
@@ -285,20 +297,30 @@ class ChatOpenRouter(BaseLanguageModel):
         """Return token IDs."""
         return [hash(text)] 
 
-    def invoke(self, input: str, **kwargs) -> str:
-        """Invoke the model with input string."""
-        return self._call(input, **kwargs)
+    def predict(self, input: str, **kwargs) -> LLMResult:
+        logger.debug(f"ChatOpenRouter.predict called with input: {input}")
+        content = self._call(input, **kwargs)
+        logger.debug(f"ChatOpenRouter.predict _call returned type: {type(content)}")
+        generations = [[GenerationChunk(text=content)]]
+        logger.debug(f"ChatOpenRouter.predict returning LLMResult with generations: {generations}")
+        return LLMResult(generations=generations)
 
-    def predict(self, input: str, **kwargs) -> str:
-        """Predict with input string."""
-        return self._call(input, **kwargs)
+    def invoke(self, input: str, **kwargs) -> LLMResult:
+        logger.debug(f"ChatOpenRouter.invoke called with input: {input}")
+        result = self.predict(input, **kwargs)
+        logger.debug(f"ChatOpenRouter.invoke returning type: {type(result)}")
+        return result
 
-    def predict_messages(self, messages: List[Dict], **kwargs) -> str:
-        """Predict message input."""
-        return self._call(
+    def predict_messages(self, messages: List[Dict], **kwargs) -> LLMResult:
+        logger.debug(f"ChatOpenRouter.predict_messages called with messages: {messages}")
+        content = self._call(
             prompt="".join([msg["content"] for msg in messages]),
             **kwargs
         )
+        logger.debug(f"ChatOpenRouter.predict_messages _call returned type: {type(content)}")
+        generations = [[GenerationChunk(text=content)]]
+        logger.debug(f"ChatOpenRouter.predict_messages returning LLMResult with generations: {generations}")
+        return LLMResult(generations=generations)
 
     def generate_prompt(self, prompts: List[str], **kwargs) -> LLMResult:
         """Generate from input prompts."""
@@ -322,24 +344,22 @@ class ChatOpenRouter(BaseLanguageModel):
             return LLMResult(generations=generations)
 
 
-    async def apredict(self, input: str, **kwargs) -> str:
-        """Asynchronous predict."""
-        result = await self.agenerate([input], **kwargs)
-        return result.generations[0][0].text
+    async def apredict(self, input: str, **kwargs) -> LLMResult:
+        logger.debug(f"ChatOpenRouter.apredict called with input: {input}")
+        result = await self.agenerate(input, **kwargs)
+        logger.debug(f"ChatOpenRouter.apredict agenerate returned type: {type(result)}")
+        return result
 
-    async def apredict_messages(
-            self,
-            messages: List[Dict],
-            **kwargs: Any
-        ) -> str:
-            """Asynchronously predict messages."""
-            prompt = " ".join([msg.get("content", "") for msg in messages])
-            
-            # Unwrap PromptValue if present
-            if isinstance(prompt, PromptValue):
-                prompt = prompt.text  # or prompt.content
-
-            return await self._async_call(prompt, **kwargs)
+    async def apredict_messages(self, messages: List[Dict], **kwargs) -> LLMResult:
+        logger.debug(f"ChatOpenRouter.apredict_messages called with messages: {messages}")
+        prompt = " ".join([msg.get("content", "") for msg in messages])
+        if isinstance(prompt, PromptValue):
+            prompt = prompt.text
+        content = await self._async_call(prompt, **kwargs)
+        logger.debug(f"ChatOpenRouter.apredict_messages _async_call returned type: {type(content)}")
+        generations = [[GenerationChunk(text=content)]]
+        logger.debug(f"ChatOpenRouter.apredict_messages returning LLMResult with generations: {generations}")
+        return LLMResult(generations=generations)
 
     async def agenerate_text(
         self,

@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 import logging
 import math
 import pydantic
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.exceptions import OutputParserException
 
 # Configure logging
@@ -110,6 +110,9 @@ async def evaluate_response(
         for metric in metrics:
             try:
                 logger.info(f"Evaluating metric: {metric.__class__.__name__}")
+                # Log the type of metric and input
+                logger.debug(f"Metric class: {metric.__class__}")
+                logger.debug(f"Metric input sample: question={question}, answer={answer}, contexts={contexts}, ground_truths={ground_truths}")
                 if not hasattr(metric, 'single_turn_ascore'):
                     raise TypeError(f"Metric {metric.__class__.__name__} does not implement required method 'single_turn_ascore'")
                 # Prepare row as dict of scalars
@@ -127,7 +130,6 @@ async def evaluate_response(
                 for k, v in row.items():
                     if not isinstance(v, str):
                         row[k] = str(v)
-                # If metric is a Ragas metric, pass SingleTurnSample
                 ragas_metric_classes = (
                     Faithfulness, AnswerRelevancy, ContextPrecision, ContextRecall, ContextRelevance
                 )
@@ -142,21 +144,54 @@ async def evaluate_response(
                         response=row["answer"],
                         reference=ground_truths[0] if ground_truths else ""
                     )
-                    score = await metric.single_turn_ascore(sample)
+                    logger.debug(f"Calling single_turn_ascore for {metric.__class__.__name__} with SingleTurnSample: {sample}")
+                    try:
+                        score = await metric.single_turn_ascore(sample)
+                    except AttributeError as e:
+                        # Special handling for 'str' object has no attribute 'get' (context relevancy bug)
+                        if "'str' object has no attribute 'get'" in str(e):
+                            logger.error(f"ContextRelevance metric output type error: {e}")
+                            logger.error(f"Likely cause: LLM output is a string or dict, not a list of dicts. Skipping this metric and assigning None.")
+                            score = None
+                        else:
+                            logger.error(f"Exception in single_turn_ascore for {metric.__class__.__name__}: {e}")
+                            logger.error(f"Exception type: {type(e)}")
+                            logger.exception("Full traceback:")
+                            score = None
+                    except Exception as e:
+                        logger.error(f"Exception in single_turn_ascore for {metric.__class__.__name__}: {e}")
+                        logger.error(f"Exception type: {type(e)}")
+                        logger.exception("Full traceback:")
+                        score = None
                 else:
-                    score = await metric.single_turn_ascore(row)
+                    logger.debug(f"Calling single_turn_ascore for {metric.__class__.__name__} with row: {row}")
+                    try:
+                        score = await metric.single_turn_ascore(row)
+                    except Exception as e:
+                        logger.error(f"Exception in single_turn_ascore for {metric.__class__.__name__} (row): {e}")
+                        logger.error(f"Exception type: {type(e)}")
+                        logger.exception("Full traceback:")
+                        score = None
                 logger.info(f"Raw score type: {type(score)}, value: {score}")
-                if isinstance(score, (float, int)):
+                if score is None:
+                    score_value = None
+                elif isinstance(score, (float, int)):
                     score_value = clean_score(float(score))
                 else:
-                    score_value = clean_score(float(score[0]))
+                    try:
+                        score_value = clean_score(float(score[0]))
+                    except Exception as e:
+                        logger.error(f"Error extracting score value for {metric.__class__.__name__}: {e}")
+                        logger.error(f"Score object: {score}")
+                        logger.exception("Full traceback:")
+                        score_value = None
                 results[metric.__class__.__name__.lower()] = score_value
                 logger.info(f"Final processed score for {metric.__class__.__name__}: {score_value}")
-            except (NotImplementedError, pydantic.ValidationError, TypeError, ValueError, AttributeError, OutputParserException) as e:
+            except Exception as e:
                 logger.error(f"Error evaluating metric {metric.__class__.__name__}: {str(e)}")
                 logger.error(f"Error type: {type(e)}")
-                logger.exception("Full traceback:")
-                results[metric.__class__.__name__.lower()] = 0.0
+                logger.exception(f"Full traceback for {metric.__class__.__name__}:")
+                results[metric.__class__.__name__.lower()] = None
         return results
     except Exception as e:
         logger.error(f"Evaluation error: {str(e)}")

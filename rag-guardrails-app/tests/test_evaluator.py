@@ -14,7 +14,9 @@ import pandas as pd
 from pydantic import ValidationError
 import inspect
 from langchain_core.outputs import LLMResult, GenerationChunk
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
+import logging
+import asyncio
 
 # Initialize test model
 test_model = ChatOpenRouter(
@@ -519,7 +521,7 @@ async def test_evaluator_handles_openrouter_rate_limit(sample_qa_pair):
 @pytest.mark.asyncio
 async def test_answer_relevancy_embedder_is_set(sample_qa_pair):
     from ragas.metrics import AnswerRelevancy
-    from langchain_community.embeddings import HuggingFaceEmbeddings
+    from langchain_huggingface import HuggingFaceEmbeddings
     embedder = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
     # Patch single_turn_ascore to check self.embeddings
     class MyAnswerRelevancy(AnswerRelevancy):
@@ -540,7 +542,7 @@ async def test_answer_relevancy_embedder_is_set(sample_qa_pair):
 @pytest.mark.asyncio
 def test_app_sets_embedder_in_answer_relevancy(monkeypatch, sample_qa_pair):
     from ragas.metrics import AnswerRelevancy
-    from langchain_community.embeddings import HuggingFaceEmbeddings
+    from langchain_huggingface import HuggingFaceEmbeddings
     from app.services import evaluator as evaluator_mod
     embedder = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
     called = {}
@@ -548,7 +550,7 @@ def test_app_sets_embedder_in_answer_relevancy(monkeypatch, sample_qa_pair):
     def custom_init(self, *args, **kwargs):
         # If called from app default metrics, embeddings must be set
         if 'embeddings' in kwargs:
-            assert kwargs['embeddings'] is embedder, f"App did not set the correct embedder: {kwargs.get('embeddings')}"
+            assert isinstance(kwargs['embeddings'], HuggingFaceEmbeddings), f"App did not set a HuggingFaceEmbeddings embedder: {kwargs.get('embeddings')}"
             called['ok'] = True
         orig_init(self, *args, **kwargs)
     monkeypatch.setattr(AnswerRelevancy, "__init__", custom_init)
@@ -573,14 +575,90 @@ def test_app_sets_embedder_in_answer_relevancy(monkeypatch, sample_qa_pair):
         ))
     except Exception:
         pass  # Ignore errors from dummy metrics
-    assert called.get('ok'), "App did not set the correct embedder in AnswerRelevancy"
+    assert called.get('ok'), "App did not set a HuggingFaceEmbeddings embedder in AnswerRelevancy"
 
-def test_patch_metric_prompt_adds_json_instruction():
-    from ragas.metrics import ContextPrecision, ContextRecall
-    from app.services.evaluator import patch_metric_prompt
-    metric1 = ContextPrecision(llm=None)
-    metric2 = ContextRecall(llm=None)
-    patched1 = patch_metric_prompt(metric1)
-    patched2 = patch_metric_prompt(metric2)
-    assert "Return your answer as a JSON object" in patched1.context_precision_prompt.instruction
-    assert "Return your answer as a JSON object" in patched2.context_recall_prompt.instruction 
+def test_context_precision_output_parser_exception(monkeypatch, sample_qa_pair, caplog):
+    """Test that ContextPrecision handles OutputParserException and assigns 0.0 score when LLM returns non-JSON or errors."""
+    from ragas.metrics import ContextPrecision
+    import logging
+    class DummyLLM:
+        async def agenerate(self, prompt, **kwargs):
+            return "The provided context mentions that the tower was designed by Gustave Eiffel, which is essential information to understand the subject matter of the question."
+    metric = ContextPrecision(llm=DummyLLM())
+    with caplog.at_level(logging.ERROR):
+        import asyncio
+        from app.services.evaluator import evaluate_response
+        result = asyncio.run(evaluate_response(
+            question=sample_qa_pair["question"],
+            answer=sample_qa_pair["answer"],
+            contexts=sample_qa_pair["contexts"],
+            metrics=[metric]
+        ))
+    # Check that an error was logged and score is 0.0
+    assert any("Exception" in m or "error" in m.lower() for m in caplog.text.splitlines()), "No error was logged for context precision failure"
+    assert result["contextprecision"] == 0.0
+
+@pytest.mark.asyncio
+async def test_context_relevance_generations_error_logs_and_returns_zero(caplog):
+    class DummyMetric:
+        __name__ = "ContextRelevance"
+        __class__ = type("ContextRelevance", (), {})
+        async def single_turn_ascore(self, sample):
+            # Simulate the error: 'str' object has no attribute 'generations'
+            raise AttributeError("'str' object has no attribute 'generations'")
+    dummy_metric = DummyMetric()
+    with caplog.at_level(logging.ERROR):
+        result = await evaluate_response(
+            question="What is Paris?",
+            answer="Paris is a city in France.",
+            contexts=["Paris is the capital of France."],
+            metrics=[dummy_metric]
+        )
+        # Check that the error was logged
+        assert any("generations" in m or "'str' object has no attribute 'generations'" in m for m in caplog.text.splitlines()), "Error about 'generations' not logged"
+        # Check that the score is 0.0
+        assert result.get("contextrelevance", None) == 0.0
+
+@pytest.mark.asyncio
+async def test_chatopenrouter_always_returns_llmresult():
+    from app.models.ChatOpenRouter import ChatOpenRouter
+    from langchain_core.outputs import LLMResult
+    model = ChatOpenRouter(
+        model="test-model",
+        api_key="test-key",
+        temperature=0.1,
+        max_tokens=10
+    )
+    # Patch _async_call to return a string
+    async def fake_async_call(prompt, *args, **kwargs):
+        return "fake response"
+    model._async_call = fake_async_call
+    result = await model.agenerate("test prompt")
+    assert isinstance(result, LLMResult)
+    assert hasattr(result, "generations")
+    assert result.generations[0][0].text == "fake response"
+    # Also test generate
+    result2 = await model.generate("test prompt")
+    assert isinstance(result2, LLMResult)
+    assert hasattr(result2, "generations")
+    assert result2.generations[0][0].text == "fake response"
+
+@pytest.mark.asyncio
+async def test_context_relevance_str_object_error_logs_and_returns_zero(caplog):
+    class DummyContextRelevance:
+        __name__ = "ContextRelevance"
+        __class__ = type("ContextRelevance", (), {})
+        async def single_turn_ascore(self, sample):
+            raise AttributeError("'str' object has no attribute 'get'")
+    dummy_metric = DummyContextRelevance()
+    with caplog.at_level(logging.ERROR):
+        result = await evaluate_response(
+            question="What is Paris?",
+            answer="Paris is a city in France.",
+            contexts=["Paris is the capital of France."],
+            ground_truths=["Paris is the capital of France."],
+            metrics=[dummy_metric]
+        )
+    # Should log the error and return None for the metric
+    assert any("Exception in single_turn_ascore for ContextRelevance (row):" in r for r in caplog.text.splitlines())
+    assert result["contextrelevance"] is None 

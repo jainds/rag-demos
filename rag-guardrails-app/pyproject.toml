@@ -1,0 +1,47 @@
+[project]
+name = "rag-guardrails-app"
+version = "0.1.0"
+description = "RAG Demos with robust evaluation and guardrails"
+authors = [
+  { name = "Your Name", email = "your@email.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "aiohttp==3.11.18",
+    "fastapi==0.115.12",
+    "faiss-cpu==1.11.0",
+    "huggingface-hub==0.30.2",
+    "langchain==0.3.24",
+    "langchain-community==0.3.23",
+    "langchain-core==0.3.56",
+    "langchain-openai==0.3.7",
+    "langchain-text-splitters==0.3.8",
+    "numpy==2.2.5",
+    "pandas==2.2.3",
+    "pydantic==2.9.1",
+    "python-dotenv==1.1.0",
+    "ragas==0.2.15",
+    "requests==2.31.0",
+    "scikit-learn==1.6.1",
+    "scipy==1.15.2",
+    "sentence-transformers==4.1.0",
+    "starlette==0.46.2",
+    "torch==2.7.0",
+    "transformers==4.51.3",
+    "pytest==8.2.2",
+    "pytest-asyncio==0.23.7",
+    "uvicorn==0.34.2"
+]
+
+[tool.uv]
+# uv will use this section for dependency resolution
+
+[tool.pytest.ini_options]
+addopts = "-ra -q"
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["app"] 
