@@ -65,7 +65,7 @@ async def health_check():
 
 @app.post("/query")
 @observe(as_type="generation")
-async def query_rag(request: QueryRequest):
+async def query_rag(request: QueryRequest, evaluator=evaluate_response):
     """
     Process a query through the RAG pipeline with optional evaluation.
     """
@@ -83,7 +83,7 @@ async def query_rag(request: QueryRequest):
             "context_relevance": ContextRelevance
         }
         embedder = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-        metrics_dict = request.metrics.dict() if hasattr(request.metrics, 'dict') else dict(request.metrics)
+        metrics_dict = request.metrics.model_dump() if hasattr(request.metrics, 'model_dump') else dict(request.metrics)
         if metrics_dict is not None:
             selected = []
             for name, enabled in metrics_dict.items():
@@ -102,7 +102,7 @@ async def query_rag(request: QueryRequest):
             metrics = selected if selected else None
 
         # Always evaluate the response
-        evaluation = await evaluate_response(
+        evaluation = await evaluator(
             question=request.question,
             answer=result["answer"],
             contexts=result["contexts"],

@@ -155,6 +155,26 @@ async def evaluate_response(
                     logger.debug(f"Calling single_turn_ascore for {metric.__class__.__name__} with SingleTurnSample: {sample}")
                     try:
                         score = await metric.single_turn_ascore(sample)
+                        logger.info(f"Raw LLM/metric output for {metric.__class__.__name__}: {score}")
+                        # Faithfulness post-processing: try to coerce output to float if possible
+                        if metric.__class__.__name__ == "Faithfulness":
+                            if isinstance(score, str):
+                                logger.warning(f"Faithfulness returned a string, attempting to parse float: {score}")
+                                try:
+                                    score = float(score)
+                                except Exception as e:
+                                    logger.error(f"Failed to coerce Faithfulness string output to float: {e}")
+                                    score = None
+                            elif isinstance(score, dict):
+                                logger.warning(f"Faithfulness returned a dict, attempting to extract float from known keys: {score}")
+                                # Try to extract a float from common keys
+                                for k in ["score", "value", "faithfulness"]:
+                                    if k in score and isinstance(score[k], (int, float)):
+                                        score = float(score[k])
+                                        break
+                                else:
+                                    logger.error(f"Could not extract float from Faithfulness dict output.")
+                                    score = None
                     except AttributeError as e:
                         # Special handling for 'str' object has no attribute 'get' (context relevancy bug)
                         if "'str' object has no attribute 'get'" in str(e):
@@ -175,6 +195,7 @@ async def evaluate_response(
                     logger.debug(f"Calling single_turn_ascore for {metric.__class__.__name__} with row: {row}")
                     try:
                         score = await metric.single_turn_ascore(row)
+                        logger.info(f"Raw LLM/metric output for {metric.__class__.__name__}: {score}")
                     except Exception as e:
                         logger.error(f"Exception in single_turn_ascore for {metric.__class__.__name__} (row): {e}")
                         logger.error(f"Exception type: {type(e)}")
@@ -291,6 +312,7 @@ async def batch_evaluate_responses(
                     }
                     try:
                         score = await metric.single_turn_ascore(row)
+                        logger.info(f"Raw LLM/metric output for {metric.__class__.__name__}: {score}")
                     except Exception as e:
                         logger.info(f"Falling back to ascore for {metric.__class__.__name__}: {str(e)}")
                         df = pd.DataFrame([row])

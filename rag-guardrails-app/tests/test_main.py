@@ -21,8 +21,8 @@ def mock_rag_index_and_docs(monkeypatch):
     monkeypatch.setattr(
         "app.main.rag_service.documents",
         [
-            {"text": "Dummy context 1"},
-            {"text": "Dummy context 2"}
+            {"text": "The Eiffel Tower is a landmark in Paris, France. It was built in 1889. Designed by Gustave Eiffel."},
+            {"text": "The Eiffel Tower stands at 324 meters and is made of iron."}
         ],
         raising=False
     )
@@ -149,23 +149,35 @@ def test_query_with_all_metrics_default():
             assert isinstance(value, (int, float))
             assert 0 <= value <= 1
 
-def test_positive_query_rag_metrics_positive(monkeypatch):
-    """Positive scenario: All metrics should be numbers (not None) for a normal query. Faithfulness is mocked to always return 1.0 for robustness."""
-    from app.services import evaluator
-    orig_eval = evaluator.evaluate_response
-    async def always_faithful(*args, **kwargs):
-        result = await orig_eval(*args, **kwargs)
-        result["faithfulness"] = 1.0  # Simulate always successful faithfulness
-        return result
-    monkeypatch.setattr(evaluator, "evaluate_response", always_faithful)
+def test_positive_query_rag_metrics_positive():
+    """Integration test: All metrics should be numbers (not None) for a normal query using real LLM and metrics. Logs all metrics and response for debugging."""
     response = client.post("/query", json={"question": "What is the Eiffel Tower?"})
+    print("[DEBUG] Full response JSON:", response.json())
     assert response.status_code == 200
     metrics = response.json()["metrics"]
+    print("[DEBUG] All metrics:", metrics)
     for key in ["faithfulness", "answer_relevancy", "context_precision", "context_recall", "context_relevance"]:
         value = metrics[key]
+        print(f"[DEBUG] Metric {key}: {value} (type: {type(value)})")
         assert value is not None, f"Metric {key} should not be None in positive scenario"
         assert isinstance(value, (int, float))
         assert 0 <= value <= 1
+
+def test_unit_query_rag_metrics_positive_mocked(monkeypatch):
+    """Unit test: Faithfulness metric is mocked to return 0.9, checks app logic for positive scenario. Logs all metrics and response for debugging."""
+    from ragas.metrics import Faithfulness
+    async def mock_single_turn_ascore(*args, **kwargs):
+        return 0.9
+    monkeypatch.setattr(Faithfulness, "single_turn_ascore", mock_single_turn_ascore)
+    response = client.post("/query", json={"question": "What is the Eiffel Tower?"})
+    print("[DEBUG] Full response JSON:", response.json())
+    assert response.status_code == 200
+    metrics = response.json()["metrics"]
+    print("[DEBUG] All metrics:", metrics)
+    assert metrics["faithfulness"] == 0.9
+    for k in ["answer_relevancy", "context_precision", "context_recall", "context_relevance"]:
+        assert isinstance(metrics[k], (int, float))
+        assert 0 <= metrics[k] <= 1
 
 @pytest.mark.asyncio
 def test_robustness_query_rag_metrics_negative(monkeypatch):
