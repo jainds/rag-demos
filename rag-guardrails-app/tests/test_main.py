@@ -176,3 +176,118 @@ def test_robustness_query_rag_metrics_negative(monkeypatch):
     metrics = response.json()["metrics"]
     assert metrics["faithfulness"] is None
     # The app should still return a valid response, not a server error
+
+def test_positive_query_with_only_faithfulness_enabled():
+    """Positive scenario: Only faithfulness metric enabled, others disabled."""
+    payload = {
+        "question": "What is the Eiffel Tower?",
+        "metrics": {
+            "faithfulness": True,
+            "answer_relevancy": False,
+            "context_precision": False,
+            "context_recall": False,
+            "context_relevance": False
+        }
+    }
+    response = client.post("/query", json=payload)
+    assert response.status_code == 200
+    metrics = response.json()["metrics"]
+    assert metrics["faithfulness"] is not None
+    assert isinstance(metrics["faithfulness"], (int, float))
+    assert 0 <= metrics["faithfulness"] <= 1
+    assert metrics["answer_relevancy"] is None
+    assert metrics["context_precision"] is None
+    assert metrics["context_recall"] is None
+    assert metrics["context_relevance"] is None
+
+def test_positive_query_with_only_answer_relevancy_enabled():
+    """Positive scenario: Only answer_relevancy metric enabled, others disabled."""
+    payload = {
+        "question": "What is the Eiffel Tower?",
+        "metrics": {
+            "faithfulness": False,
+            "answer_relevancy": True,
+            "context_precision": False,
+            "context_recall": False,
+            "context_relevance": False
+        }
+    }
+    response = client.post("/query", json=payload)
+    assert response.status_code == 200
+    metrics = response.json()["metrics"]
+    assert metrics["answer_relevancy"] is not None
+    assert isinstance(metrics["answer_relevancy"], (int, float))
+    assert 0 <= metrics["answer_relevancy"] <= 1
+    assert metrics["faithfulness"] is None
+    assert metrics["context_precision"] is None
+    assert metrics["context_recall"] is None
+    assert metrics["context_relevance"] is None
+
+def test_positive_query_with_only_context_precision_enabled():
+    """Positive scenario: Only context_precision metric enabled, others disabled."""
+    payload = {
+        "question": "What is the Eiffel Tower?",
+        "metrics": {
+            "faithfulness": False,
+            "answer_relevancy": False,
+            "context_precision": True,
+            "context_recall": False,
+            "context_relevance": False
+        }
+    }
+    response = client.post("/query", json=payload)
+    assert response.status_code == 200
+    metrics = response.json()["metrics"]
+    assert metrics["context_precision"] is not None
+    assert isinstance(metrics["context_precision"], (int, float))
+    assert 0 <= metrics["context_precision"] <= 1
+    assert metrics["faithfulness"] is None
+    assert metrics["answer_relevancy"] is None
+    assert metrics["context_recall"] is None
+    assert metrics["context_relevance"] is None
+
+def test_positive_query_with_only_context_recall_enabled():
+    """Positive scenario: Only context_recall metric enabled, others disabled."""
+    payload = {
+        "question": "What is the Eiffel Tower?",
+        "metrics": {
+            "faithfulness": False,
+            "answer_relevancy": False,
+            "context_precision": False,
+            "context_recall": True,
+            "context_relevance": False
+        }
+    }
+    response = client.post("/query", json=payload)
+    assert response.status_code == 200
+    metrics = response.json()["metrics"]
+    assert metrics["context_recall"] is not None
+    assert isinstance(metrics["context_recall"], (int, float))
+    assert 0 <= metrics["context_recall"] <= 1
+    assert metrics["faithfulness"] is None
+    assert metrics["answer_relevancy"] is None
+    assert metrics["context_precision"] is None
+    assert metrics["context_relevance"] is None
+
+def test_positive_query_with_only_context_relevance_enabled():
+    """Positive scenario: Only context_relevance metric enabled, others disabled."""
+    payload = {
+        "question": "What is the Eiffel Tower?",
+        "metrics": {
+            "faithfulness": False,
+            "answer_relevancy": False,
+            "context_precision": False,
+            "context_recall": False,
+            "context_relevance": True
+        }
+    }
+    response = client.post("/query", json=payload)
+    assert response.status_code == 200
+    metrics = response.json()["metrics"]
+    assert metrics["context_relevance"] is not None
+    assert isinstance(metrics["context_relevance"], (int, float))
+    assert 0 <= metrics["context_relevance"] <= 1
+    assert metrics["faithfulness"] is None
+    assert metrics["answer_relevancy"] is None
+    assert metrics["context_precision"] is None
+    assert metrics["context_recall"] is None
