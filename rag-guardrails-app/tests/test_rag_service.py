@@ -43,16 +43,16 @@ def rag_service(mock_env_vars, sample_config_file):
     return RAGService(config_path=str(sample_config_file))
 
 @pytest.mark.asyncio
-async def test_init_rag_service(mock_env_vars, sample_config_file):
-    """Test RAG service initialization"""
+async def test_positive_init_rag_service(mock_env_vars, sample_config_file):
+    """Positive scenario: RAG service initializes with loader, indexer, and empty documents."""
     service = RAGService(config_path=str(sample_config_file))
     assert service.loader is not None
     assert service.indexer is not None
     assert service.documents == []
 
 @pytest.mark.asyncio
-async def test_load_and_index_documents(rag_service, tmp_path):
-    """Test document loading and indexing"""
+async def test_positive_load_and_index_documents(rag_service, tmp_path):
+    """Positive scenario: Documents are loaded, indexed, and files are saved."""
     # Create test document
     test_file = tmp_path / "test.txt"
     test_file.write_text("This is a test document for RAG testing.")
@@ -69,8 +69,8 @@ async def test_load_and_index_documents(rag_service, tmp_path):
     assert (tmp_path / "vector_index.faiss").exists()
 
 @pytest.mark.asyncio
-async def test_load_existing_index(rag_service, tmp_path, sample_documents):
-    """Test loading existing index"""
+async def test_positive_load_existing_index(rag_service, tmp_path, sample_documents):
+    """Positive scenario: Existing index and documents can be loaded into a new service."""
     # Save sample documents and create index
     docs_path = tmp_path / "documents.json"
     with open(docs_path, "w") as f:
@@ -92,8 +92,8 @@ async def test_load_existing_index(rag_service, tmp_path, sample_documents):
     assert new_service.indexer.index is not None
 
 @pytest.mark.asyncio
-async def test_query(rag_service, sample_documents):
-    """Test query processing"""
+async def test_positive_query(rag_service, sample_documents):
+    """Positive scenario: Query returns expected answer and contexts, and LLM is called."""
     # Setup test data
     rag_service.documents = sample_documents
     rag_service.indexer.create_index(sample_documents)
@@ -111,8 +111,8 @@ async def test_query(rag_service, sample_documents):
     assert rag_service.rails.generate_async.called
 
 @pytest.mark.asyncio
-async def test_query_error_handling(rag_service):
-    """Test error handling in query processing"""
+async def test_robustness_query_error_handling(rag_service):
+    """Robustness scenario: Query raises exception if LLM fails, and error is handled."""
     # Mock an error in LLM
     rag_service.rails.generate_async = AsyncMock(side_effect=Exception("Test error"))
     

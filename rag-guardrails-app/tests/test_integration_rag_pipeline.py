@@ -4,7 +4,8 @@ import os
 import json
 
 @pytest.mark.asyncio
-async def test_rag_pipeline_normal():
+async def test_positive_rag_pipeline_normal():
+    """Positive scenario: rag_pipeline returns dict or str for a valid query."""
     result = await rag_pipeline("What is the Eiffel Tower?")
     assert isinstance(result, dict) or isinstance(result, str)
 
@@ -14,7 +15,8 @@ async def test_rag_pipeline_empty_query():
     assert isinstance(result, dict) or isinstance(result, str)
 
 @pytest.mark.asyncio
-async def test_rag_pipeline_missing_files(monkeypatch):
+async def test_robustness_rag_pipeline_missing_files(monkeypatch):
+    """Robustness scenario: Missing file raises FileNotFoundError."""
     from app.services import rag as rag_mod
     # Patch the file check to simulate missing file
     monkeypatch.setattr(rag_mod, "get_faiss_index_and_documents", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("Missing file")))
@@ -28,7 +30,8 @@ async def test_rag_pipeline_long_query():
     assert isinstance(result, dict) or isinstance(result, str)
 
 @pytest.mark.asyncio
-async def test_rag_pipeline_non_string_query():
+async def test_robustness_rag_pipeline_non_string_query():
+    """Robustness scenario: Non-string query raises Exception."""
     with pytest.raises(Exception):
         await rag_pipeline(12345)  # Should raise due to non-string input
 
@@ -49,7 +52,8 @@ async def test_rag_pipeline_no_results(monkeypatch):
     assert isinstance(result, dict) or isinstance(result, str)
 
 @pytest.mark.asyncio
-async def test_rag_pipeline_documents_not_list(tmp_path, monkeypatch):
+async def test_robustness_rag_pipeline_documents_not_list(tmp_path, monkeypatch):
+    """Robustness scenario: Malformed documents.json (not a list) raises ValueError."""
     # Create a malformed documents.json
     bad_docs_path = tmp_path / "bad_docs.json"
     with open(bad_docs_path, "w") as f:
@@ -59,7 +63,8 @@ async def test_rag_pipeline_documents_not_list(tmp_path, monkeypatch):
         await rag_pipeline("Test", documents_path=str(bad_docs_path))
 
 @pytest.mark.asyncio
-async def test_rag_pipeline_documents_empty(tmp_path):
+async def test_robustness_rag_pipeline_documents_empty(tmp_path):
+    """Robustness scenario: Empty documents and index raises IndexError."""
     # Create an empty list for documents
     docs_path = tmp_path / "empty_docs.json"
     with open(docs_path, "w") as f:
@@ -73,7 +78,8 @@ async def test_rag_pipeline_documents_empty(tmp_path):
         await rag_pipeline("Test", index_path=str(tmp_path / "empty_index.faiss"), documents_path=str(docs_path))
 
 @pytest.mark.asyncio
-async def test_rag_pipeline_index_corrupt(tmp_path):
+async def test_robustness_rag_pipeline_index_corrupt(tmp_path):
+    """Robustness scenario: Corrupt index file raises Exception."""
     # Create a corrupt index file
     index_path = tmp_path / "corrupt.faiss"
     with open(index_path, "wb") as f:
@@ -85,14 +91,16 @@ async def test_rag_pipeline_index_corrupt(tmp_path):
         await rag_pipeline("Test", index_path=str(index_path), documents_path=str(docs_path))
 
 @pytest.mark.asyncio
-async def test_rag_pipeline_env_missing(monkeypatch):
+async def test_robustness_rag_pipeline_env_missing(monkeypatch):
+    """Robustness scenario: Missing OPENROUTER_MODEL env variable still returns result."""
     # Remove OPENROUTER_MODEL from env
     monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
     result = await rag_pipeline("Test")
     assert isinstance(result, dict) or isinstance(result, str)
 
 @pytest.mark.asyncio
-async def test_rag_pipeline_llm_exception(monkeypatch):
+async def test_robustness_rag_pipeline_llm_exception(monkeypatch):
+    """Robustness scenario: LLM exception is raised and handled."""
     from app.services import rag as rag_mod
     class DummyLLM:
         async def generate_async(self, *a, **k): raise Exception("LLM error")

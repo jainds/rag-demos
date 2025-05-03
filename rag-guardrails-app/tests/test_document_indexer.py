@@ -16,21 +16,21 @@ def sample_documents():
         {"text": "Natural language processing is fascinating.", "source": "test3.txt"}
     ]
 
-def test_init_document_indexer():
-    """Test DocumentIndexer initialization"""
+def test_positive_init_document_indexer():
+    """Positive scenario: DocumentIndexer initializes with model and dimension."""
     indexer = DocumentIndexer(model_name='all-MiniLM-L6-v2')
     assert indexer.model is not None
     assert indexer.dimension > 0
     assert indexer.index is None
 
-def test_create_index(document_indexer, sample_documents):
-    """Test index creation"""
+def test_positive_create_index(document_indexer, sample_documents):
+    """Positive scenario: Index is created and has correct number of documents."""
     document_indexer.create_index(sample_documents)
     assert document_indexer.index is not None
     assert document_indexer.index.ntotal == len(sample_documents)
 
-def test_save_and_load_index(document_indexer, sample_documents, tmp_path):
-    """Test saving and loading index"""
+def test_positive_save_and_load_index(document_indexer, sample_documents, tmp_path):
+    """Positive scenario: Index can be saved and loaded, preserving document count."""
     # Create and save index
     document_indexer.create_index(sample_documents)
     index_path = tmp_path / "test_index.faiss"
@@ -43,8 +43,8 @@ def test_save_and_load_index(document_indexer, sample_documents, tmp_path):
     assert new_indexer.index is not None
     assert new_indexer.index.ntotal == len(sample_documents)
 
-def test_search(document_indexer, sample_documents):
-    """Test document search"""
+def test_positive_search(document_indexer, sample_documents):
+    """Positive scenario: Search returns correct types and indices in range."""
     document_indexer.create_index(sample_documents)
     
     # Test search
@@ -56,12 +56,12 @@ def test_search(document_indexer, sample_documents):
     assert len(indices[0]) == 2
     assert all(0 <= idx < len(sample_documents) for idx in indices[0])
 
-def test_search_without_index(document_indexer):
-    """Test search without creating index first"""
+def test_robustness_search_without_index(document_indexer):
+    """Robustness scenario: Searching without index raises ValueError."""
     with pytest.raises(ValueError):
         document_indexer.search("test query")
 
-def test_save_without_index(document_indexer, tmp_path):
-    """Test saving when no index exists"""
+def test_robustness_save_without_index(document_indexer, tmp_path):
+    """Robustness scenario: Saving without index raises ValueError."""
     with pytest.raises(ValueError):
         document_indexer.save_index(tmp_path / "nonexistent.faiss") 

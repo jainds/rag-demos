@@ -20,29 +20,29 @@ def sample_markdown_file():
         f.write("# Test Document\n\nThis is a markdown test.\n## Section\nMore content.")
         return Path(f.name)
 
-def test_init_document_loader():
-    """Test DocumentLoader initialization"""
+def test_positive_init_document_loader():
+    """Positive scenario: DocumentLoader initializes with correct chunk size and splitter."""
     loader = DocumentLoader(chunk_size=200, chunk_overlap=50)
     assert loader.chunk_size == 200
     assert loader.chunk_overlap == 50
     assert loader.text_splitter is not None
 
-def test_load_text_document(document_loader, sample_text_file):
-    """Test loading a text document"""
+def test_positive_load_text_document(document_loader, sample_text_file):
+    """Positive scenario: Loads text document and parses into dicts with text and source."""
     docs = document_loader.load_documents(sample_text_file, file_type="text")
     assert len(docs) > 0
     assert all(isinstance(doc, dict) for doc in docs)
     assert all("text" in doc and "source" in doc for doc in docs)
 
-def test_load_markdown_document(document_loader, sample_markdown_file):
-    """Test loading a markdown document"""
+def test_positive_load_markdown_document(document_loader, sample_markdown_file):
+    """Positive scenario: Loads markdown document and parses into dicts with text and source."""
     docs = document_loader.load_documents(sample_markdown_file, file_type="markdown")
     assert len(docs) > 0
     assert all(isinstance(doc, dict) for doc in docs)
     assert all("text" in doc and "source" in doc for doc in docs)
 
-def test_save_and_load_json(document_loader, sample_text_file, tmp_path):
-    """Test saving and loading documents to/from JSON"""
+def test_positive_save_and_load_json(document_loader, sample_text_file, tmp_path):
+    """Positive scenario: Documents can be saved to and loaded from JSON with correct content."""
     # Load initial documents
     docs = document_loader.load_documents(sample_text_file, file_type="text")
     
@@ -57,12 +57,12 @@ def test_save_and_load_json(document_loader, sample_text_file, tmp_path):
     assert all(isinstance(doc, dict) for doc in loaded_docs)
     assert all("text" in doc and "source" in doc for doc in loaded_docs)
 
-def test_invalid_file_type(document_loader, sample_text_file):
-    """Test handling of invalid file type"""
+def test_robustness_invalid_file_type(document_loader, sample_text_file):
+    """Robustness scenario: Invalid file type raises ValueError."""
     with pytest.raises(ValueError):
         document_loader.load_documents(sample_text_file, file_type="invalid")
 
-def test_invalid_path(document_loader):
-    """Test handling of invalid file path"""
+def test_robustness_invalid_path(document_loader):
+    """Robustness scenario: Invalid file path raises ValueError."""
     with pytest.raises(ValueError):
         document_loader.load_documents("nonexistent_file.txt") 

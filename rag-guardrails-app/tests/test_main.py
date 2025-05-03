@@ -28,7 +28,8 @@ def mock_rag_index_and_docs(monkeypatch):
     )
     yield
 
-def test_query_rag():
+def test_positive_query_rag():
+    """Positive scenario: /query returns answer and metrics for a valid question."""
     response = client.post(
         "/query",
         json={"question": "What is the Eiffel Tower?"},
@@ -149,7 +150,7 @@ def test_query_with_all_metrics_default():
             assert isinstance(value, (int, float))
             assert 0 <= value <= 1
 
-def test_query_rag_metrics_positive():
+def test_positive_query_rag_metrics_positive():
     """Positive scenario: All metrics should be numbers (not None) for a normal query."""
     response = client.post("/query", json={"question": "What is the Eiffel Tower?"})
     assert response.status_code == 200
@@ -161,8 +162,8 @@ def test_query_rag_metrics_positive():
         assert 0 <= value <= 1
 
 @pytest.mark.asyncio
-def test_query_rag_metrics_negative(monkeypatch):
-    """Negative scenario: Simulate metric failure, expect None and no server error."""
+def test_robustness_query_rag_metrics_negative(monkeypatch):
+    """Robustness scenario: Simulate metric failure, expect None and no server error."""
     from app.services import evaluator
     orig_eval = evaluator.evaluate_response
     async def fail_metric(*args, **kwargs):

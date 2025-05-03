@@ -85,27 +85,25 @@ def sample_qa_batch():
     }
 
 @pytest.mark.asyncio
-async def test_evaluate_response(sample_qa_pair):
-    """Test single response evaluation"""
+async def test_positive_evaluate_response(sample_qa_pair):
+    """Positive scenario: all metrics should be floats (no None allowed)."""
     result = await evaluate_response(
         question=sample_qa_pair["question"],
         answer=sample_qa_pair["answer"],
         contexts=sample_qa_pair["contexts"],
         ground_truths=sample_qa_pair["ground_truths"]
     )
-    
     assert isinstance(result, dict)
     assert all(isinstance(score, float) for score in result.values())
     assert all(0 <= score <= 1 for score in result.values())
 
 @pytest.mark.asyncio
-async def test_evaluate_response_without_context():
-    """Test evaluation without context"""
+async def test_robustness_evaluate_response_without_context():
+    """Robustness scenario: None allowed for metrics that may fail (e.g., missing context)."""
     result = await evaluate_response(
         question="What is AI?",
         answer="AI is artificial intelligence."
     )
-    
     assert isinstance(result, dict)
     assert all(isinstance(score, float) or score is None for score in result.values())
 
