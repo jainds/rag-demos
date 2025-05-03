@@ -78,7 +78,7 @@ langchain==0.3.24
 langchain-community==0.3.23
 langchain-core==0.3.56
 langchain-huggingface==0.1.2
-langchain-openai==0.3.7
+langchain-openai==0.3.16
 langchain-text-splitters==0.3.8
 langdetect==1.0.9
 langfuse==2.60.3
