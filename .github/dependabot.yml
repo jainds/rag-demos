@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  # Python dependencies in root
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    allow:
+      - dependency-type: "all"
+    commit-message:
+      prefix: "deps(root)"
+  # Python dependencies in rag-guardrails-app
+  - package-ecosystem: "pip"
+    directory: "/rag-guardrails-app/"
+    schedule:
+      interval: "weekly"
+    allow:
+      - dependency-type: "all"
+    commit-message:
+      prefix: "deps(rag-guardrails-app)" 
