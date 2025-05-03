@@ -26,7 +26,7 @@ jobs:
       - name: Install dependencies
         run: |
           uv lock --upgrade  # Ensure lock file is up to date (optional, can be removed for strict lock)
-          uv sync --system   # Install all dependencies as per uv.lock and pyproject.toml
+          uv sync   # Install all dependencies as per uv.lock and pyproject.toml
         working-directory: rag-guardrails-app
         env:
           PYTHONPATH: ${{ github.workspace }}/rag-guardrails-app
