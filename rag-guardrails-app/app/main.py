@@ -109,13 +109,37 @@ async def query_rag(request: QueryRequest):
             metrics=metrics
         )
 
+        # Normalize and ensure all metrics are present in the response
+        expected_metrics = [
+            "faithfulness",
+            "answer_relevancy",
+            "context_precision",
+            "context_recall",
+            "context_relevance"
+        ]
+        # Map possible returned keys to expected keys
+        key_map = {
+            "faithfulness": "faithfulness",
+            "answerrelevancy": "answer_relevancy",
+            "answer_relevancy": "answer_relevancy",
+            "contextprecision": "context_precision",
+            "context_precision": "context_precision",
+            "contextrecall": "context_recall",
+            "context_recall": "context_recall",
+            "contextrelevance": "context_relevance",
+            "context_relevance": "context_relevance"
+        }
+        normalized_metrics = {k: None for k in expected_metrics}
+        for k, v in evaluation.items():
+            norm_key = key_map.get(k.lower(), k.lower())
+            if norm_key in normalized_metrics:
+                normalized_metrics[norm_key] = v
         response = {
             "question": request.question,
             "answer": result["answer"],
             "contexts": result["contexts"],
-            "metrics": evaluation
+            "metrics": normalized_metrics
         }
-
         return response
 
     except Exception as e:
