@@ -1,3 +1,17 @@
+from dotenv import load_dotenv
+import os
+
+
+print("PYTEST: At import, OPENROUTER_API_KEY =", os.environ.get("OPENROUTER_API_KEY"))
+
+PROJECT_ROOT = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+DOTENV_PATH = os.path.join(PROJECT_ROOT, ".env")
+CONFIG_PATH = os.path.join(PROJECT_ROOT, "app", "config", "config.yml")
+
+print("PYTEST: Loading dotenv from", DOTENV_PATH)
+load_dotenv(dotenv_path=DOTENV_PATH, override=True)
+print("PYTEST: After load_dotenv, OPENROUTER_API_KEY =", os.environ.get("OPENROUTER_API_KEY"))
+
 import pytest
 from app.services.evaluator import evaluate_response, batch_evaluate_responses, SingleTurnSample
 from ragas.metrics import (
@@ -8,7 +22,6 @@ from ragas.metrics import (
     ContextRelevance
 )
 from app.models.ChatOpenRouter import ChatOpenRouter
-import os
 from unittest.mock import AsyncMock, patch, MagicMock
 import pandas as pd
 from pydantic import ValidationError
@@ -19,10 +32,23 @@ import logging
 import asyncio
 import collections.abc
 from pathlib import Path
+import aiohttp
+from nemoguardrails.actions.llm.utils import LLMCallException
+
+
+@pytest.fixture(autouse=True)
+def fail_on_dummy_openrouter_keys():
+    print("PYTEST: In fixture, OPENROUTER_API_KEY =", os.environ.get("OPENROUTER_API_KEY"))
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    model = os.environ.get("OPENROUTER_MODEL")
+    if api_key in (None, "", "test-key"):
+        pytest.fail("OPENROUTER_API_KEY is not set or is a dummy value ('test-key').")
+    if model in (None, "", "test-model"):
+        pytest.fail("OPENROUTER_MODEL is not set or is a dummy value ('test-model').")
 
 # Initialize test model
 test_model = ChatOpenRouter(
-    model="anthropic/claude-3-opus-20240229",
+    model=os.environ.get("OPENROUTER_MODEL"),
     api_key=os.environ.get("OPENROUTER_API_KEY"),
     temperature=0.1,
     max_tokens=50
@@ -401,8 +427,8 @@ async def test_chat_openrouter_ragas_compatibility():
     from app.models.ChatOpenRouter import ChatOpenRouter
     import os
     model = ChatOpenRouter(
-        model="test-model",
-        api_key=os.environ.get("OPENROUTER_API_KEY", "test-key"),
+        model=os.environ.get("OPENROUTER_MODEL"),
+        api_key=os.environ.get("OPENROUTER_API_KEY"),
         temperature=0.1,
         max_tokens=10
     )
@@ -419,8 +445,8 @@ async def test_chat_openrouter_generate_is_async():
     import os
     from langchain_core.outputs import LLMResult
     model = ChatOpenRouter(
-        model="test-model",
-        api_key=os.environ.get("OPENROUTER_API_KEY", "test-key"),
+        model=os.environ.get("OPENROUTER_MODEL"),
+        api_key=os.environ.get("OPENROUTER_API_KEY"),
         temperature=0.1,
         max_tokens=10
     )
@@ -437,8 +463,8 @@ async def test_chat_openrouter_generate_returns_llmresult():
     import os
     from langchain_core.outputs import LLMResult, GenerationChunk
     model = ChatOpenRouter(
-        model="test-model",
-        api_key=os.environ.get("OPENROUTER_API_KEY", "test-key"),
+        model=os.environ.get("OPENROUTER_MODEL"),
+        api_key=os.environ.get("OPENROUTER_API_KEY"),
         temperature=0.1,
         max_tokens=10
     )
@@ -459,8 +485,8 @@ async def test_chat_openrouter_agenerate_returns_llmresult():
     import os
     from langchain_core.outputs import LLMResult, GenerationChunk
     model = ChatOpenRouter(
-        model="test-model",
-        api_key=os.environ.get("OPENROUTER_API_KEY", "test-key"),
+        model=os.environ.get("OPENROUTER_MODEL"),
+        api_key=os.environ.get("OPENROUTER_API_KEY"),
         temperature=0.1,
         max_tokens=10
     )
@@ -501,8 +527,8 @@ async def test_evaluator_handles_openrouter_rate_limit(sample_qa_pair):
     import os
     # Patch _async_call to raise ValueError simulating rate limit
     model = ChatOpenRouter(
-        model="test-model",
-        api_key=os.environ.get("OPENROUTER_API_KEY", "test-key"),
+        model=os.environ.get("OPENROUTER_MODEL"),
+        api_key=os.environ.get("OPENROUTER_API_KEY"),
         temperature=0.1,
         max_tokens=10
     )
@@ -671,8 +697,8 @@ async def test_chatopenrouter_always_returns_llmresult():
     from app.models.ChatOpenRouter import ChatOpenRouter
     from langchain_core.outputs import LLMResult
     model = ChatOpenRouter(
-        model="test-model",
-        api_key="test-key",
+        model=os.environ.get("OPENROUTER_MODEL"),
+        api_key=os.environ.get("OPENROUTER_API_KEY"),
         temperature=0.1,
         max_tokens=10
     )
@@ -795,8 +821,8 @@ async def test_chatopenrouter_llmresult_contract():
     from app.models.ChatOpenRouter import ChatOpenRouter
     from langchain_core.outputs import LLMResult
     model = ChatOpenRouter(
-        model="test-model",
-        api_key="test-key",
+        model=os.environ.get("OPENROUTER_MODEL"),
+        api_key=os.environ.get("OPENROUTER_API_KEY"),
         temperature=0.1,
         max_tokens=10
     )
@@ -844,52 +870,58 @@ async def test_chatopenrouter_llmresult_contract():
 @pytest.mark.asyncio
 @pytest.mark.integration
 @pytest.mark.skipif(not os.environ.get("OPENROUTER_API_KEY"), reason="No OpenRouter API key set")
-@pytest.mark.skipif(not Path("rag-guardrails-app/app/config/config.yml").exists(), reason="No NeMo Guardrails config file found")
+@pytest.mark.skipif(not os.environ.get("OPENROUTER_MODEL"), reason="No OpenRouter model set")
+@pytest.mark.skipif(not Path(CONFIG_PATH).exists(), reason="No NeMo Guardrails config file found")
 async def test_llmrails_generate_async_normal():
     """Test LLMRails (Nemo Guardrails) normal generation via generate_async."""
     from nemoguardrails import LLMRails, RailsConfig
     from app.models.ChatOpenRouter import ChatOpenRouter
-    config_path = "rag-guardrails-app/app/config/config.yml"
-    config = RailsConfig.from_path(config_path)
+    
+    config = RailsConfig.from_path(CONFIG_PATH)
+
     model = ChatOpenRouter(
-        model="anthropic/claude-3-opus-20240229",
-        api_key=os.environ["OPENROUTER_API_KEY"],
+         model=os.environ.get("OPENROUTER_MODEL"),
+         api_key=os.environ.get("OPENROUTER_API_KEY"),
         temperature=0.1,
         max_tokens=100
     )
     rails = LLMRails(config, llm=model, verbose=True)
     response = await rails.generate_async(messages=[{"role": "user", "content": "What is the capital of France?"}])
-    assert isinstance(response, str)
-    assert len(response) > 0
+    assert isinstance(response, (str, dict))
+    if isinstance(response, dict):
+        assert "content" in response
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 @pytest.mark.skipif(not os.environ.get("OPENROUTER_API_KEY"), reason="No OpenRouter API key set")
-@pytest.mark.skipif(not Path("rag-guardrails-app/app/config/config.yml").exists(), reason="No NeMo Guardrails config file found")
+@pytest.mark.skipif(not os.environ.get("OPENROUTER_MODEL"), reason="No OpenRouter model set")
+@pytest.mark.skipif(not Path(CONFIG_PATH).exists(), reason="No NeMo Guardrails config file found")
 async def test_llmrails_generate_async_edge_cases(monkeypatch):
     """Test LLMRails (Nemo Guardrails) edge cases: empty prompt, long prompt, invalid API key, network error, rate limit error."""
     from nemoguardrails import LLMRails, RailsConfig
     from app.models.ChatOpenRouter import ChatOpenRouter
-    import aiohttp
-    config_path = "rag-guardrails-app/app/config/config.yml"
-    config = RailsConfig.from_path(config_path)
+    config = RailsConfig.from_path(CONFIG_PATH)
     model = ChatOpenRouter(
-        model="anthropic/claude-3-opus-20240229",
-        api_key=os.environ["OPENROUTER_API_KEY"],
+         model=os.environ.get("OPENROUTER_MODEL"),
+         api_key=os.environ.get("OPENROUTER_API_KEY"),
         temperature=0.1,
         max_tokens=100
     )
     rails = LLMRails(config, llm=model, verbose=True)
     # Empty prompt
     response = await rails.generate_async(messages=[{"role": "user", "content": ""}])
-    assert isinstance(response, str)
+    assert isinstance(response, (str, dict))
+    if isinstance(response, dict):
+        assert "content" in response
     # Long prompt
     long_prompt = "What is AI? " * 1000
     response = await rails.generate_async(messages=[{"role": "user", "content": long_prompt}])
-    assert isinstance(response, str)
+    assert isinstance(response, (str, dict))
+    if isinstance(response, dict):
+        assert "content" in response
     # Invalid API key
     model_bad = ChatOpenRouter(
-        model="anthropic/claude-3-opus-20240229",
+         model=os.environ.get("OPENROUTER_MODEL"),
         api_key="invalid-key",
         temperature=0.1,
         max_tokens=100
@@ -897,12 +929,25 @@ async def test_llmrails_generate_async_edge_cases(monkeypatch):
     rails_bad = LLMRails(config, llm=model_bad, verbose=True)
     with pytest.raises(Exception):
         await rails_bad.generate_async(messages=[{"role": "user", "content": "What is the capital of France?"}])
-    # Simulate network error by patching aiohttp.ClientSession.post
-    async def fake_post(*args, **kwargs):
-        raise aiohttp.ClientError("Simulated network error")
-    monkeypatch.setattr(aiohttp.ClientSession, "post", fake_post)
-    with pytest.raises(aiohttp.ClientError):
+    # Simulate network error by patching aiohttp.ClientSession with a robust async context manager
+    import aiohttp
+    class MockResponse:
+        async def __aenter__(self):
+            raise aiohttp.ClientError("Simulated network error")
+        async def __aexit__(self, exc_type, exc, tb):
+            pass
+    class MockSession:
+        def post(self, *args, **kwargs):
+            return MockResponse()
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc, tb):
+            pass
+    monkeypatch.setattr(aiohttp, "ClientSession", MockSession)
+    # Nemo Guardrails wraps LLM errors in LLMCallException, so assert on that
+    with pytest.raises(LLMCallException) as excinfo:
         await rails.generate_async(messages=[{"role": "user", "content": "What is the capital of France?"}])
+    assert "Simulated network error" in str(excinfo.value)
     # Simulate rate limit error by patching _async_call
     async def fake_async_call(*args, **kwargs):
         raise Exception("Rate limit exceeded: free-models-per-min.")

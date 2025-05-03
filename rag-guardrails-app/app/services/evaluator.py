@@ -24,7 +24,6 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
-load_dotenv()
 
 # Ensure OpenRouter API key is available
 openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")

@@ -7,6 +7,14 @@ import tempfile
 from unittest.mock import patch
 import asyncio
 import nest_asyncio
+import requests
+from dotenv import load_dotenv
+
+# Always load .env.test if it exists, else .env
+DOTENV_PATH = Path(__file__).parent.parent / ".env.test"
+if not DOTENV_PATH.exists():
+    DOTENV_PATH = Path(__file__).parent.parent / ".env"
+load_dotenv(dotenv_path=DOTENV_PATH, override=True)
 
 # Configure asyncio for testing
 @pytest.fixture(scope="session", autouse=True)
@@ -32,9 +40,9 @@ def client() -> Generator:
     with TestClient(app) as c:
         yield c
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def mock_env_vars():
-    """Automatically mock environment variables for all tests"""
+    """Setup mock environment variables for tests that explicitly request it."""
     with patch.dict(os.environ, {
         "OPENROUTER_MODEL": "test-model",
         "OPENROUTER_API_KEY": "test-key",
@@ -65,3 +73,30 @@ def cleanup_files():
     
     yield temp_files
     _cleanup()
+
+@pytest.mark.integration
+def test_openrouter_api_key_validity():
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    model = os.environ.get("OPENROUTER_MODEL")
+    if not api_key or not model:
+        print(f"[Preflight] Skipping: OPENROUTER_API_KEY or OPENROUTER_MODEL not set.\nAPI_KEY={api_key}, MODEL={model}")
+        pytest.skip("OPENROUTER_API_KEY or OPENROUTER_MODEL not set.")
+    masked_key = api_key[:6] + "..." + api_key[-4:] if len(api_key) > 10 else "***"
+    print(f"[Preflight] Using API_KEY={masked_key}, MODEL={model}")
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "HTTP-Referer": "http://localhost:8000",
+        "X-Title": "Your Application Name"
+    }
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": "ping"}],
+        "temperature": 0.1,
+        "max_tokens": 3
+    }
+    resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+    print(f"[Preflight] Status: {resp.status_code}, Response: {resp.text}")
+    if resp.status_code == 401:
+        pytest.fail(f"OpenRouter API key is invalid or unauthorized: {resp.text}")
+    elif resp.status_code != 200:
+        pytest.skip(f"OpenRouter API returned status {resp.status_code}: {resp.text}")
