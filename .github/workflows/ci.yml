@@ -29,6 +29,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install .[test]
         working-directory: rag-guardrails-app
+        env:
+          PYTHONPATH: ${{ github.workspace }}/rag-guardrails-app
       - name: Check for required secrets
         run: |
           if [ -z "$OPENROUTER_API_KEY" ] || [ -z "$OPENROUTER_MODEL" ]; then
@@ -44,6 +46,7 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
+          PYTHONPATH: ${{ github.workspace }}/rag-guardrails-app
       - name: Upload pytest results
         if: always()
         uses: actions/upload-artifact@v4
