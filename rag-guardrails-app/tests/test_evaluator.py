@@ -167,7 +167,7 @@ async def test_evaluate_response_with_custom_metrics_validation():
         answer="Test.",
         metrics=["invalid_metric"]  # Should be metric objects
     )
-    assert result.get("str", 0.0) == 0.0
+    assert result.get("str") is None  # Should be None on error
 
 def get_columns_and_types_from_arg(args, kwargs):
     # Helper to extract DataFrame/dict columns and value types from args/kwargs
@@ -244,7 +244,7 @@ async def test_single_turn_ascore_requires_model(sample_qa_pair):
         ground_truths=sample_qa_pair["ground_truths"],
         metrics=[metric]
     )
-    assert result[metric.__class__.__name__.lower()] == 0.0
+    assert result[metric.__class__.__name__.lower()] is None  # Should be None on error
 
 # --- Error 3: ascore not called if not implemented ---
 @pytest.mark.asyncio
@@ -261,7 +261,7 @@ async def test_ascore_not_called_on_metrics_without_implementation(sample_qa_pai
         ground_truths=sample_qa_pair["ground_truths"],
         metrics=[metric]
     )
-    assert result[metric.__class__.__name__.lower()] == 0.0
+    assert result[metric.__class__.__name__.lower()] is None  # Should be None on error
 
 # --- Error 4: single_turn_ascore input type ---
 @pytest.mark.asyncio
@@ -297,7 +297,7 @@ async def test_evaluator_handles_not_implemented_error(sample_qa_pair):
         ground_truths=sample_qa_pair["ground_truths"],
         metrics=[metric]
     )
-    assert result[metric.__class__.__name__.lower()] == 0.0
+    assert result[metric.__class__.__name__.lower()] is None  # Should be None on error
 
 # --- Error 6: Pydantic validation error handling ---
 @pytest.mark.asyncio
@@ -314,7 +314,7 @@ async def test_evaluator_handles_pydantic_validation_error(sample_qa_pair):
         ground_truths=sample_qa_pair["ground_truths"],
         metrics=[metric]
     )
-    assert result[metric.__class__.__name__.lower()] == 0.0
+    assert result[metric.__class__.__name__.lower()] is None  # Should be None on error
 
 # --- Error 7: End-to-end regression for all metrics ---
 @pytest.mark.asyncio
@@ -543,7 +543,7 @@ async def test_evaluator_handles_openrouter_rate_limit(sample_qa_pair):
         ground_truths=sample_qa_pair["ground_truths"],
         metrics=[metric]
     )
-    assert result["faithfulness"] == 0.0
+    assert result["faithfulness"] is None  # Should be None on error
 
 # --- Test: Ensure correct embedder is passed to AnswerRelevancy ---
 @pytest.mark.asyncio
@@ -624,7 +624,7 @@ def test_context_precision_output_parser_exception(monkeypatch, sample_qa_pair, 
         ))
     # Check that an error was logged and score is 0.0
     assert any("Exception" in m or "error" in m.lower() for m in caplog.text.splitlines()), "No error was logged for context precision failure"
-    assert result["contextprecision"] == 0.0
+    assert result["contextprecision"] is None  # Should be None on error
 
 @pytest.mark.asyncio
 async def test_context_relevance_fail_generations_error(caplog, sample_qa_pair):
