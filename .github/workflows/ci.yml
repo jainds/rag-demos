@@ -7,14 +7,18 @@ on:
     branches: [main]
 
 jobs:
-  unit-tests:
-    runs-on: ubuntu-latest
+  test:
+    name: Run all tests (unit + integration)
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        python-version: [3.10]
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: ${{ matrix.python-version }}
       - name: Cache pip
         uses: actions/cache@v4
         with:
@@ -24,35 +28,31 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r rag-guardrails-app/requirements.txt
-      - name: Run unit tests
+      - name: Check for required secrets
         run: |
-          pytest rag-guardrails-app/tests/ --ignore=rag-guardrails-app/tests/test_integration_app.py
-
-  integration-tests:
-    needs: unit-tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+          if [ -z "$OPENROUTER_API_KEY" ] || [ -z "$OPENROUTER_MODEL" ]; then
+            echo "Required secrets (OPENROUTER_API_KEY, OPENROUTER_MODEL) are missing."
+            exit 1
+          fi
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
+      - name: Run all tests
+        run: |
+          pytest rag-guardrails-app/tests/ --maxfail=3 --disable-warnings -v
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
+      - name: Upload pytest results
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          python-version: '3.10'
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r rag-guardrails-app/requirements.txt
-      - name: Run integration tests
-        run: |
-          pytest rag-guardrails-app/tests/test_integration_app.py
+          name: pytest-results
+          path: pytest_debug_output.log
 
   docker:
-    needs: integration-tests
-    runs-on: ubuntu-latest
+    needs: test
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -70,3 +70,6 @@ jobs:
         run: |
           docker build -t ghcr.io/${{ github.repository }}:latest .
           docker push ghcr.io/${{ github.repository }}:latest
+
+# To add a CI badge to your README:
+# ![CI](https://github.com/jainds/rag-demos/actions/workflows/ci.yml/badge.svg)

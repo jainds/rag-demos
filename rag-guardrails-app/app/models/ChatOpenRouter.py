@@ -236,7 +236,8 @@ class ChatOpenRouter(BaseLanguageModel):
         }
 
         import asyncio
-        for attempt in range(2):
+        max_retries = 5
+        for attempt in range(max_retries):
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{self.base_url}/chat/completions",
@@ -244,23 +245,30 @@ class ChatOpenRouter(BaseLanguageModel):
                     json=payload,
                     timeout=30,
                 ) as response:
-                    if response.status == 429:
-                        if attempt == 0:
-                            logger.warning("[OpenRouter] Rate limit hit. Waiting 60 seconds before retry...")
+                    text = await response.text()
+                    if response.status == 429 or (text and 'rate limit' in text.lower()):
+                        if attempt < max_retries - 1:
+                            logger.warning(f"[OpenRouter] Rate limit hit (attempt {attempt+1}/{max_retries}). Waiting 60 seconds before retry...")
                             await asyncio.sleep(60)
                             continue
                         else:
-                            text = await response.text()
-                            raise HTTPException(status_code=429, detail=f"OpenRouter API rate limit exceeded after retry: {text}")
+                            raise HTTPException(status_code=429, detail=f"OpenRouter API rate limit exceeded after {max_retries} retries: {text}")
                     if response.status != 200:
-                        text = await response.text()
                         raise HTTPException(
                             status_code=response.status,
                             detail=text
                         )
                     result = await response.json()
-                    # Defensive: handle malformed response
+                    # Defensive: handle malformed response or rate limit in JSON
                     if not result or "choices" not in result or not result["choices"]:
+                        # Check for rate limit in error JSON
+                        if "error" in result and "rate limit" in str(result["error"]).lower():
+                            if attempt < max_retries - 1:
+                                logger.warning(f"[OpenRouter] Rate limit error in JSON (attempt {attempt+1}/{max_retries}). Waiting 60 seconds before retry...")
+                                await asyncio.sleep(60)
+                                continue
+                            else:
+                                raise HTTPException(status_code=429, detail=f"OpenRouter API rate limit exceeded after {max_retries} retries: {result}")
                         raise ValueError(f"Malformed response from OpenRouter: {result}")
                     logger.debug(f"ChatOpenRouter._async_call returning type: {type(result['choices'][0]['message']['content'])}")
                     return result["choices"][0]["message"]["content"]
@@ -394,7 +402,8 @@ class ChatOpenRouter(BaseLanguageModel):
             }
 
             import asyncio
-            for attempt in range(2):
+            max_retries = 5
+            for attempt in range(max_retries):
                 async with aiohttp.ClientSession() as session:
                     async with session.post(
                         f"{self.base_url}/chat/completions",
@@ -402,22 +411,29 @@ class ChatOpenRouter(BaseLanguageModel):
                         json=payload,
                         timeout=30
                     ) as response:
-                        if response.status == 429:
-                            if attempt == 0:
-                                print("[OpenRouter] Rate limit hit. Waiting 60 seconds before retry...")
+                        text = await response.text()
+                        if response.status == 429 or (text and 'rate limit' in text.lower()):
+                            if attempt < max_retries - 1:
+                                print(f"[OpenRouter] Rate limit hit (attempt {attempt+1}/{max_retries}). Waiting 60 seconds before retry...")
                                 await asyncio.sleep(60)
                                 continue
                             else:
-                                error_text = await response.text()
-                                raise HTTPException(status_code=429, detail=f"OpenRouter API rate limit exceeded after retry: {error_text}")
+                                raise HTTPException(status_code=429, detail=f"OpenRouter API rate limit exceeded after {max_retries} retries: {text}")
                         if response.status != 200:
-                            error_text = await response.text()
                             raise HTTPException(
                                 status_code=response.status,
-                                detail=error_text
+                                detail=text
                             )
                         result = await response.json()
                         if not result or "choices" not in result or not result["choices"]:
+                            # Check for rate limit in error JSON
+                            if "error" in result and "rate limit" in str(result["error"]).lower():
+                                if attempt < max_retries - 1:
+                                    print(f"[OpenRouter] Rate limit error in JSON (attempt {attempt+1}/{max_retries}). Waiting 60 seconds before retry...")
+                                    await asyncio.sleep(60)
+                                    continue
+                                else:
+                                    raise HTTPException(status_code=429, detail=f"OpenRouter API rate limit exceeded after {max_retries} retries: {result}")
                             raise ValueError(f"Malformed response from OpenRouter: {result}")
                         return result["choices"][0]["message"]["content"]
 
