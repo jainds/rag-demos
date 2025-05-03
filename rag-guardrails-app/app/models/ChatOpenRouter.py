@@ -267,7 +267,7 @@ class ChatOpenRouter(BaseLanguageModel):
         for prompt in prompts:
             content = self._call(prompt, stop, run_manager, **kwargs)
             generations.append([GenerationChunk(text=content)])
-        return LLMResult(generations=generations)
+        return self._ensure_llmresult(LLMResult(generations=generations))
 
     async def generate(
         self,
@@ -301,9 +301,7 @@ class ChatOpenRouter(BaseLanguageModel):
         logger.debug(f"ChatOpenRouter.predict called with input: {input}")
         content = self._call(input, **kwargs)
         logger.debug(f"ChatOpenRouter.predict _call returned type: {type(content)}")
-        generations = [[GenerationChunk(text=content)]]
-        logger.debug(f"ChatOpenRouter.predict returning LLMResult with generations: {generations}")
-        return LLMResult(generations=generations)
+        return self._ensure_llmresult(content)
 
     def invoke(self, input: str, **kwargs) -> LLMResult:
         logger.debug(f"ChatOpenRouter.invoke called with input: {input}")
@@ -318,9 +316,7 @@ class ChatOpenRouter(BaseLanguageModel):
             **kwargs
         )
         logger.debug(f"ChatOpenRouter.predict_messages _call returned type: {type(content)}")
-        generations = [[GenerationChunk(text=content)]]
-        logger.debug(f"ChatOpenRouter.predict_messages returning LLMResult with generations: {generations}")
-        return LLMResult(generations=generations)
+        return self._ensure_llmresult(content)
 
     def generate_prompt(self, prompts: List[str], **kwargs) -> LLMResult:
         """Generate from input prompts."""
@@ -341,14 +337,13 @@ class ChatOpenRouter(BaseLanguageModel):
                     prompt = prompt.text  # or prompt.content
                 content = await self._async_call(prompt, stop=stop, run_manager=run_manager, **kwargs)
                 generations.append([GenerationChunk(text=content)])
-            return LLMResult(generations=generations)
-
+            return self._ensure_llmresult(LLMResult(generations=generations))
 
     async def apredict(self, input: str, **kwargs) -> LLMResult:
         logger.debug(f"ChatOpenRouter.apredict called with input: {input}")
         result = await self.agenerate(input, **kwargs)
         logger.debug(f"ChatOpenRouter.apredict agenerate returned type: {type(result)}")
-        return result
+        return self._ensure_llmresult(result)
 
     async def apredict_messages(self, messages: List[Dict], **kwargs) -> LLMResult:
         logger.debug(f"ChatOpenRouter.apredict_messages called with messages: {messages}")
@@ -357,9 +352,7 @@ class ChatOpenRouter(BaseLanguageModel):
             prompt = prompt.text
         content = await self._async_call(prompt, **kwargs)
         logger.debug(f"ChatOpenRouter.apredict_messages _async_call returned type: {type(content)}")
-        generations = [[GenerationChunk(text=content)]]
-        logger.debug(f"ChatOpenRouter.apredict_messages returning LLMResult with generations: {generations}")
-        return LLMResult(generations=generations)
+        return self._ensure_llmresult(content)
 
     async def agenerate_text(
         self,

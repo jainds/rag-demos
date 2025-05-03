@@ -258,14 +258,12 @@ async def batch_evaluate_responses(
         
         # Evaluate each metric individually
         for metric in metrics:
+            scores = []
             try:
                 logger.info(f"Evaluating metric: {metric.__class__.__name__}")
-                
                 # Validate metric type
                 if not hasattr(metric, 'single_turn_ascore'):
                     raise TypeError(f"Metric {metric.__class__.__name__} does not implement required method 'single_turn_ascore'")
-                
-                scores = []
                 for i in range(len(questions)):
                     row = {
                         "question": questions[i],
@@ -282,22 +280,35 @@ async def batch_evaluate_responses(
                     except Exception as e:
                         logger.info(f"Falling back to ascore for {metric.__class__.__name__}: {str(e)}")
                         df = pd.DataFrame([row])
-                        score = await metric.ascore(df)
-                    if isinstance(score, pd.Series):
+                        try:
+                            score = await metric.ascore(df)
+                        except Exception as e2:
+                            logger.error(f"Error in ascore fallback for {metric.__class__.__name__}: {str(e2)}")
+                            logger.error(f"Error type: {type(e2)}")
+                            logger.exception("Full traceback:")
+                            score = None
+                    if score is None:
+                        scores.append(None)
+                    elif isinstance(score, pd.Series):
                         scores.append(clean_score(float(score.iloc[0])))
                     elif isinstance(score, (float, int)):
                         scores.append(clean_score(float(score)))
                     else:
-                        scores.append(clean_score(float(score[0])))
-                results[metric.__class__.__name__.lower()] = scores
+                        try:
+                            scores.append(clean_score(float(score[0])))
+                        except Exception as e:
+                            logger.error(f"Error extracting score value for {metric.__class__.__name__}: {e}")
+                            logger.error(f"Score object: {score}")
+                            logger.exception("Full traceback:")
+                            scores.append(None)
                 logger.info(f"Final processed scores for {metric.__class__.__name__}: {scores}")
-                    
             except (NotImplementedError, pydantic.ValidationError, TypeError, ValueError, AttributeError, OutputParserException) as e:
                 logger.error(f"Error evaluating metric {metric.__class__.__name__}: {str(e)}")
                 logger.error(f"Error type: {type(e)}")
                 logger.exception("Full traceback:")
-                results[metric.__class__.__name__.lower()] = [0.0] * len(questions)
-                
+                scores = [None] * len(questions)
+            finally:
+                results[metric.__class__.__name__.lower()] = scores
         return results
     except Exception as e:
         logger.error(f"Batch evaluation error: {str(e)}")
