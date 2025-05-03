@@ -45,7 +45,7 @@ dependencies = [
 test = [
     "pytest==8.2.2",
     "pytest-asyncio==0.23.7",
-    "pytest-cov==4.1.0",
+    "pytest-cov==6.1.1",
     "pytest-mock==3.12.0",
     "black==23.11.0",
     "isort==5.12.0",
