@@ -35,7 +35,9 @@ dependencies = [
     "uvicorn==0.34.2",
     "langfuse==2.60.3",
     "nest_asyncio==1.6.0",
-    "litellm==1.67.6"
+    "litellm==1.67.6",
+    "unstructured==0.17.2"
+    "aiofiles==24.1.0"
 ]
 
 [project.optional-dependencies]
