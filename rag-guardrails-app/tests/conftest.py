@@ -10,6 +10,8 @@ import nest_asyncio
 import requests
 from dotenv import load_dotenv
 import time
+import faiss
+import numpy as np
 
 # Always load .env.test if it exists, else .env
 DOTENV_PATH = Path(__file__).parent.parent / ".env.test"
@@ -111,3 +113,13 @@ def test_openrouter_api_key_validity():
             pytest.skip(f"OpenRouter API returned status {resp.status_code}: {resp.text}")
         else:
             break
+
+@pytest.fixture(scope="session", autouse=True)
+def create_faiss_index():
+    """Create a dummy FAISS index at data/vector_index.faiss for integration tests."""
+    os.makedirs("data", exist_ok=True)
+    dim = 128
+    xb = np.random.random((10, dim)).astype('float32')
+    index = faiss.IndexFlatL2(dim)
+    index.add(xb)
+    faiss.write_index(index, "data/vector_index.faiss")
