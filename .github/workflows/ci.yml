@@ -8,6 +8,8 @@ on:
 
 jobs:
   test:
+    permissions:
+      contents: read
     name: Run all tests (unit + integration)
     runs-on: ubuntu-24.04
     strategy:
