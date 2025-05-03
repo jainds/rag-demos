@@ -8,7 +8,7 @@ langchain-core==0.3.56
 langchain-openai==0.3.7
 langchain-text-splitters==0.3.8
 langchain-huggingface==0.1.2
-nemoguardrails==0.4.0
+nemoguardrails==0.13.0
 numpy==2.2.5
 pandas==2.2.3
 pydantic==2.9.1
@@ -24,4 +24,4 @@ transformers==4.51.3
 uvicorn==0.34.2
 langfuse==2.19.0
 nest_asyncio==1.6.0
-litellm==1.37.23
+litellm==1.67.6
