@@ -168,6 +168,9 @@ async def evaluate_response(
                     logger.debug(f"Calling single_turn_ascore for {metric.__class__.__name__} with SingleTurnSample: {sample}")
                     try:
                         score = await metric.single_turn_ascore(sample)
+                        # Log the raw LLM output for Faithfulness before parsing
+                        if metric.__class__.__name__ == "Faithfulness":
+                            logger.info(f"[RAW LLM OUTPUT - Faithfulness] Output before parsing: {score}")
                         logger.info(f"Raw LLM/metric output for {metric.__class__.__name__}: {score}")
                         # Faithfulness post-processing: try to coerce output to float if possible
                         if metric.__class__.__name__ == "Faithfulness":
