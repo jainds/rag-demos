@@ -18,6 +18,7 @@ import math
 import pydantic
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.exceptions import OutputParserException
+import json
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -59,6 +60,14 @@ def patch_metric_prompt(metric):
                 orig + "\n\nReturn your answer as a JSON object with the required fields."
             )
     return metric
+
+def normalize_keys(obj):
+    if isinstance(obj, dict):
+        return {k.lower(): normalize_keys(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [normalize_keys(i) for i in obj]
+    else:
+        return obj
 
 async def evaluate_response(
     question: str,
@@ -184,6 +193,12 @@ async def evaluate_response(
                         logger.error(f"Score object: {score}")
                         logger.exception("Full traceback:")
                         score_value = None
+                # If score is a dict and has 'statements' or 'Statements', normalize keys
+                if isinstance(score, dict):
+                    score = normalize_keys(score)
+                    if 'statements' in score:
+                        # If the metric expects a float, but got a dict, set to None
+                        score = None
                 results[metric.__class__.__name__.lower()] = score_value
                 logger.info(f"Final processed score for {metric.__class__.__name__}: {score_value}")
             except Exception as e:
@@ -300,6 +315,12 @@ async def batch_evaluate_responses(
                             logger.error(f"Score object: {score}")
                             logger.exception("Full traceback:")
                             scores.append(None)
+                    # If score is a dict and has 'statements' or 'Statements', normalize keys
+                    if isinstance(score, dict):
+                        score = normalize_keys(score)
+                        if 'statements' in score:
+                            # If the metric expects a float, but got a dict, set to None
+                            score = None
                 logger.info(f"Final processed scores for {metric.__class__.__name__}: {scores}")
             except (NotImplementedError, pydantic.ValidationError, TypeError, ValueError, AttributeError, OutputParserException) as e:
                 logger.error(f"Error evaluating metric {metric.__class__.__name__}: {str(e)}")
