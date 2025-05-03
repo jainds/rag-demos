@@ -42,7 +42,7 @@ jobs:
       - name: Run all tests
         run: |
           source .venv/bin/activate
-          pytest rag-guardrails-app/tests/ --maxfail=3 --disable-warnings -v
+          pytest tests/ --maxfail=3 --disable-warnings -v
         working-directory: rag-guardrails-app
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
