@@ -32,7 +32,8 @@ dependencies = [
     "transformers==4.51.3",
     "pytest==8.2.2",
     "pytest-asyncio==0.23.7",
-    "uvicorn==0.34.2"
+    "uvicorn==0.34.2",
+    "langfuse"
 ]
 
 [project.optional-dependencies]
