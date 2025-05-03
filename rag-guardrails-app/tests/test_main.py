@@ -148,3 +148,30 @@ def test_query_with_all_metrics_default():
         if value is not None:
             assert isinstance(value, (int, float))
             assert 0 <= value <= 1
+
+def test_query_rag_metrics_positive():
+    """Positive scenario: All metrics should be numbers (not None) for a normal query."""
+    response = client.post("/query", json={"question": "What is the Eiffel Tower?"})
+    assert response.status_code == 200
+    metrics = response.json()["metrics"]
+    for key in ["faithfulness", "answer_relevancy", "context_precision", "context_recall", "context_relevance"]:
+        value = metrics[key]
+        assert value is not None, f"Metric {key} should not be None in positive scenario"
+        assert isinstance(value, (int, float))
+        assert 0 <= value <= 1
+
+@pytest.mark.asyncio
+def test_query_rag_metrics_negative(monkeypatch):
+    """Negative scenario: Simulate metric failure, expect None and no server error."""
+    from app.services import evaluator
+    orig_eval = evaluator.evaluate_response
+    async def fail_metric(*args, **kwargs):
+        result = await orig_eval(*args, **kwargs)
+        result["faithfulness"] = None  # Simulate failure
+        return result
+    monkeypatch.setattr(evaluator, "evaluate_response", fail_metric)
+    response = client.post("/query", json={"question": "What is the Eiffel Tower?"})
+    assert response.status_code == 200
+    metrics = response.json()["metrics"]
+    assert metrics["faithfulness"] is None
+    # The app should still return a valid response, not a server error
