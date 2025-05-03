@@ -4,7 +4,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from nemoguardrails import LLMRails, RailsConfig
 from langfuse import Langfuse
-from langfuse.decorators import observe
+from langfuse.decorators import observe, langfuse_context
 import litellm
 
 from app.services.document_loader import DocumentLoader
