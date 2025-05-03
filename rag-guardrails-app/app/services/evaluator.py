@@ -99,8 +99,21 @@ async def evaluate_response(
     # Default metrics if none specified
     if metrics is None:
         embedder = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        faithfulness_metric = Faithfulness(llm=evaluation_model)
+        # Set robust prompt for NLI statements
+        faithfulness_metric.nli_statements_prompt.instruction = (
+            "Your task is to judge the faithfulness of a series of statements based on a given context.\n"
+            "For each statement, return a JSON object with BOTH a 'verdict' and a 'reason' field.\n"
+            "- 'verdict': 1 if the statement can be directly inferred from the context, 0 otherwise.\n"
+            "- 'reason': A brief explanation for your verdict.\n"
+            "Do not omit any fields. Do not return plain text. Only output a valid JSON object for each statement.\n"
+            "Example:\n"
+            "Statement: 'The Eiffel Tower is in Paris.'\n"
+            "Context: 'The Eiffel Tower is a landmark in Paris, France.'\n"
+            "Output: {\"verdict\": 1, \"reason\": \"The context confirms the Eiffel Tower is in Paris.\"}"
+        )
         metrics = [
-            Faithfulness(llm=evaluation_model),
+            faithfulness_metric,
             AnswerRelevancy(llm=evaluation_model, embeddings=embedder),
             patch_metric_prompt(ContextPrecision(llm=evaluation_model)),
             patch_metric_prompt(ContextRecall(llm=evaluation_model)),
@@ -276,8 +289,21 @@ async def batch_evaluate_responses(
     # Default metrics if none specified
     if metrics is None:
         embedder = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        faithfulness_metric = Faithfulness(llm=evaluation_model)
+        # Set robust prompt for NLI statements
+        faithfulness_metric.nli_statements_prompt.instruction = (
+            "Your task is to judge the faithfulness of a series of statements based on a given context.\n"
+            "For each statement, return a JSON object with BOTH a 'verdict' and a 'reason' field.\n"
+            "- 'verdict': 1 if the statement can be directly inferred from the context, 0 otherwise.\n"
+            "- 'reason': A brief explanation for your verdict.\n"
+            "Do not omit any fields. Do not return plain text. Only output a valid JSON object for each statement.\n"
+            "Example:\n"
+            "Statement: 'The Eiffel Tower is in Paris.'\n"
+            "Context: 'The Eiffel Tower is a landmark in Paris, France.'\n"
+            "Output: {\"verdict\": 1, \"reason\": \"The context confirms the Eiffel Tower is in Paris.\"}"
+        )
         metrics = [
-            Faithfulness(llm=evaluation_model),
+            faithfulness_metric,
             AnswerRelevancy(llm=evaluation_model, embeddings=embedder),
             patch_metric_prompt(ContextPrecision(llm=evaluation_model)),
             patch_metric_prompt(ContextRecall(llm=evaluation_model)),
