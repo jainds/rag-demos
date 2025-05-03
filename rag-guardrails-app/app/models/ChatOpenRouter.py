@@ -235,25 +235,35 @@ class ChatOpenRouter(BaseLanguageModel):
             **filtered_kwargs
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=30,
-            ) as response:
-                if response.status != 200:
-                    text = await response.text()
-                    raise HTTPException(
-                        status_code=response.status,
-                        detail=text
-                    )
-                result = await response.json()
-                # Defensive: handle malformed response
-                if not result or "choices" not in result or not result["choices"]:
-                    raise ValueError(f"Malformed response from OpenRouter: {result}")
-                logger.debug(f"ChatOpenRouter._async_call returning type: {type(result['choices'][0]['message']['content'])}")
-                return result["choices"][0]["message"]["content"]
+        import asyncio
+        for attempt in range(2):
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=30,
+                ) as response:
+                    if response.status == 429:
+                        if attempt == 0:
+                            logger.warning("[OpenRouter] Rate limit hit. Waiting 60 seconds before retry...")
+                            await asyncio.sleep(60)
+                            continue
+                        else:
+                            text = await response.text()
+                            raise HTTPException(status_code=429, detail=f"OpenRouter API rate limit exceeded after retry: {text}")
+                    if response.status != 200:
+                        text = await response.text()
+                        raise HTTPException(
+                            status_code=response.status,
+                            detail=text
+                        )
+                    result = await response.json()
+                    # Defensive: handle malformed response
+                    if not result or "choices" not in result or not result["choices"]:
+                        raise ValueError(f"Malformed response from OpenRouter: {result}")
+                    logger.debug(f"ChatOpenRouter._async_call returning type: {type(result['choices'][0]['message']['content'])}")
+                    return result["choices"][0]["message"]["content"]
 
     def _generate(
         self,
@@ -383,23 +393,33 @@ class ChatOpenRouter(BaseLanguageModel):
                 **filtered_kwargs
             }
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self.base_url}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                    timeout=30
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        raise HTTPException(
-                            status_code=response.status,
-                            detail=error_text
-                        )
-                    result = await response.json()
-                    if not result or "choices" not in result or not result["choices"]:
-                        raise ValueError(f"Malformed response from OpenRouter: {result}")
-                    return result["choices"][0]["message"]["content"]
+            import asyncio
+            for attempt in range(2):
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        f"{self.base_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=30
+                    ) as response:
+                        if response.status == 429:
+                            if attempt == 0:
+                                print("[OpenRouter] Rate limit hit. Waiting 60 seconds before retry...")
+                                await asyncio.sleep(60)
+                                continue
+                            else:
+                                error_text = await response.text()
+                                raise HTTPException(status_code=429, detail=f"OpenRouter API rate limit exceeded after retry: {error_text}")
+                        if response.status != 200:
+                            error_text = await response.text()
+                            raise HTTPException(
+                                status_code=response.status,
+                                detail=error_text
+                            )
+                        result = await response.json()
+                        if not result or "choices" not in result or not result["choices"]:
+                            raise ValueError(f"Malformed response from OpenRouter: {result}")
+                        return result["choices"][0]["message"]["content"]
 
         except Exception as e:
             print(f"Error in agenerate_text: {str(e)}")

@@ -9,6 +9,7 @@ import asyncio
 import nest_asyncio
 import requests
 from dotenv import load_dotenv
+import time
 
 # Always load .env.test if it exists, else .env
 DOTENV_PATH = Path(__file__).parent.parent / ".env.test"
@@ -94,9 +95,19 @@ def test_openrouter_api_key_validity():
         "temperature": 0.1,
         "max_tokens": 3
     }
-    resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
-    print(f"[Preflight] Status: {resp.status_code}, Response: {resp.text}")
-    if resp.status_code == 401:
-        pytest.fail(f"OpenRouter API key is invalid or unauthorized: {resp.text}")
-    elif resp.status_code != 200:
-        pytest.skip(f"OpenRouter API returned status {resp.status_code}: {resp.text}")
+    for attempt in range(2):
+        resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+        print(f"[Preflight] Status: {resp.status_code}, Response: {resp.text}")
+        if resp.status_code == 429:
+            if attempt == 0:
+                print("[Preflight] Rate limit hit. Waiting 60 seconds before retry...")
+                time.sleep(60)
+                continue
+            else:
+                pytest.skip(f"OpenRouter API rate limit exceeded after retry: {resp.text}")
+        elif resp.status_code == 401:
+            pytest.fail(f"OpenRouter API key is invalid or unauthorized: {resp.text}")
+        elif resp.status_code != 200:
+            pytest.skip(f"OpenRouter API returned status {resp.status_code}: {resp.text}")
+        else:
+            break
