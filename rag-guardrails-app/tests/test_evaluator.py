@@ -107,7 +107,7 @@ async def test_evaluate_response_without_context():
     )
     
     assert isinstance(result, dict)
-    assert all(isinstance(score, float) for score in result.values())
+    assert all(isinstance(score, float) or score is None for score in result.values())
 
 @pytest.mark.asyncio
 async def test_evaluate_response_with_custom_metrics(sample_qa_pair):

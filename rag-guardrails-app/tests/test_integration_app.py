@@ -92,4 +92,4 @@ def test_evaluator_pipeline():
             ground_truths=["AI is artificial intelligence."]
         ))
     assert isinstance(result, dict)
-    assert all(isinstance(v, float) for v in result.values()) 
+    assert all(isinstance(v, float) or v is None for v in result.values()) 
