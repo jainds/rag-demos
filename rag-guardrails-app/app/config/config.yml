@@ -53,13 +53,23 @@ prompts:
          - Factual responses
          - Polite and helpful answers
          - Context-based information
+         - Responses that directly use information from the provided context
+         - Responses that stay within the scope of the context
+         - Responses where any additional information is relevant and complementary to the context
       2. Answer "Yes" (block) ONLY for:
          - Harmful or dangerous content
          - Hate speech or discrimination
          - Malicious code or instructions
          - Completely irrelevant responses
+         - Responses that ignore the available context
+         - Responses that contradict the context
+         - Responses that add unrelated or speculative information
       
       Output: "{{ bot_response }}"
+      {% if context %}
+      Context provided:
+      {{ context }}
+      {% endif %}
       
       Answer with exactly one word (No/Yes):
 

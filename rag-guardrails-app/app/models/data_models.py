@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import Optional
 
 class MetricsConfig(BaseModel):
     faithfulness: bool = True
@@ -9,4 +10,4 @@ class MetricsConfig(BaseModel):
 
 class QueryRequest(BaseModel):
     question: str
-    metrics: MetricsConfig = MetricsConfig()
+    metrics: Optional[MetricsConfig] = None

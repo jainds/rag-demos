@@ -176,4 +176,52 @@ class RAGService:
             
         except Exception as e:
             print(f"Error in RAG query: {str(e)}")
+            raise Exception(f"Error generating response: {str(e)}")
+
+class RAGServiceNoGuardrails:
+    """RAG service without Nemo Guardrails, uses ChatOpenRouter directly."""
+    def __init__(self,
+                 model_name: str = 'all-MiniLM-L6-v2',
+                 chunk_size: int = 1000,
+                 chunk_overlap: int = 200):
+        self.loader = DocumentLoader(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        self.indexer = DocumentIndexer(model_name=model_name)
+        self.llm_provider = ChatOpenRouter(
+            model=os.environ.get("OPENROUTER_MODEL", "opengvlab/internvl3-2b:free"),
+            api_key=os.environ.get("OPENROUTER_API_KEY"),
+            temperature=0.1,
+            max_tokens=512,
+            top_p=0.95
+        )
+        self.documents: List[Dict[str, str]] = []
+
+    def load_and_index_documents(self, source_path: str, file_type: str = "text", save_dir: Optional[str] = "data") -> None:
+        self.documents = self.loader.load_documents(source_path, file_type)
+        if save_dir:
+            save_dir = Path(save_dir)
+            save_dir.mkdir(parents=True, exist_ok=True)
+            self.loader.save_documents(self.documents, save_dir / "documents.json")
+            self.indexer.create_index(self.documents)
+            self.indexer.save_index(save_dir / "vector_index.faiss")
+
+    def load_existing_index(self, documents_path: str, index_path: str) -> None:
+        self.documents = self.loader.load_from_json(documents_path)
+        self.indexer.load_index(index_path)
+
+    async def query_no_guardrails(self, query: str, num_contexts: int = 2) -> Dict[str, Any]:
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            _, indices = self.indexer.search(query, k=num_contexts)
+            retrieved_docs = [self.documents[i] for i in indices[0]]
+            contexts = [doc['text'] for doc in retrieved_docs]
+            context_text = "\n".join(f"• {ctx}" for ctx in contexts) if contexts else ""
+            prompt = f"Context:\n{context_text}\n\nQuestion: {query}\nAnswer:"
+            logger.info(f"[RAGServiceNoGuardrails] Prompt: {prompt}")
+            # Tracing can be added here if needed
+            answer = await self.llm_provider.agenerate_text(prompt)
+            logger.info(f"[RAGServiceNoGuardrails] Answer: {answer}")
+            return {"answer": answer, "contexts": contexts}
+        except Exception as e:
+            logger.error(f"Error in RAGServiceNoGuardrails query: {str(e)}")
             raise Exception(f"Error generating response: {str(e)}") 
