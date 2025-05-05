@@ -11,13 +11,18 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir uv 
-RUN uv pip install --no-cache-dir --system .
+# Copy dependency files first
+COPY pyproject.toml .
+COPY uv.lock .
 
-# Copy the application code
+# Install dependencies (without project)
+RUN uv pip install -r pyproject.toml
+
+# Copy the rest of the code
 COPY . .
+
+# Install the project in editable mode
+# RUN uv pip install -e .
 
 # Expose the FastAPI port
 EXPOSE 8000
