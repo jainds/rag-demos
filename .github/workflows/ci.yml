@@ -2,43 +2,65 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - '**'
   pull_request:
-    branches: [main]
+    branches:
+      - master
 
 jobs:
-  test:
-    name: Run all tests (unit + integration)
+  unit-test:
+    if: github.event_name == 'push' && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main'
+    name: Run unit tests (feature branch)
     runs-on: ubuntu-24.04
-    strategy:
-      matrix:
-        python-version: [ 3.11]
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: 3.11
       - name: Install uv
         run: |
           python -m pip install --upgrade pip
           pip install uv
       - name: Install dependencies
         run: |
-          uv lock --upgrade  # Ensure lock file is up to date (optional, can be removed for strict lock)
-          uv sync   # Install all dependencies as per uv.lock and pyproject.toml
+          uv lock --upgrade
+          uv sync
         working-directory: rag-guardrails-app
         env:
           PYTHONPATH: ${{ github.workspace }}/rag-guardrails-app
-      - name: Check for required secrets
+      - name: Run unit tests only
         run: |
-          if [ -z "$OPENROUTER_API_KEY" ] || [ -z "$OPENROUTER_MODEL" ]; then
-            echo "Required secrets (OPENROUTER_API_KEY, OPENROUTER_MODEL) are missing."
-            exit 1
-          fi
+          source .venv/bin/activate
+          pytest tests/ --maxfail=3 --disable-warnings -v -m 'not integration'
+        working-directory: rag-guardrails-app
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
+          PYTHONPATH: ${{ github.workspace }}/rag-guardrails-app
+
+  all-tests:
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/master')
+    name: Run all tests (PR to master or push to master)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+      - name: Install uv
+        run: |
+          python -m pip install --upgrade pip
+          pip install uv
+      - name: Install dependencies
+        run: |
+          uv lock --upgrade
+          uv sync
+        working-directory: rag-guardrails-app
+        env:
+          PYTHONPATH: ${{ github.workspace }}/rag-guardrails-app
       - name: Run all tests
         run: |
           source .venv/bin/activate
@@ -48,19 +70,11 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
           PYTHONPATH: ${{ github.workspace }}/rag-guardrails-app
-      - name: Upload pytest results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pytest-results
-          path: pytest_debug_output.log
 
-  docker:
-    needs: test
+  docker-build-feature:
+    if: github.event_name == 'push' && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main'
+    name: Docker build (feature branch)
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      packages: write
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker Buildx
@@ -71,10 +85,33 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push Docker image
+      - name: Build and push Docker image (feature branch)
         run: |
-          docker build -t ghcr.io/${{ github.repository }}:latest ./rag-guardrails-app
-          docker push ghcr.io/${{ github.repository }}:latest
+          IMAGE_TAG=feature-${{ github.ref_name }}-${{ github.run_number }}-${{ github.sha }}
+          docker build -t ghcr.io/${{ github.repository }}:${IMAGE_TAG} ./rag-guardrails-app
+          docker push ghcr.io/${{ github.repository }}:${IMAGE_TAG}
+
+  docker-build-prod:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    name: Docker build and push (production)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push Docker image (production)
+        run: |
+          IMAGE_TAG=prod-${{ github.run_number }}-${{ github.sha }}
+          docker build -t ghcr.io/${{ github.repository }}:${IMAGE_TAG} ./rag-guardrails-app
+          docker tag ghcr.io/${{ github.repository }}:${IMAGE_TAG} ghcr.io/${{ github.repository }}:production
+          docker push ghcr.io/${{ github.repository }}:${IMAGE_TAG}
+          docker push ghcr.io/${{ github.repository }}:production
 
 # To add a CI badge to your README:
 # ![CI](https://github.com/jainds/rag-demos/actions/workflows/ci.yml/badge.svg)
