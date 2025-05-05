@@ -18,13 +18,13 @@ COPY uv.lock .
 # Install dependencies (without project)
 RUN pip install uv
 
-RUN uv pip install -r pyproject.toml
+RUN uv pip install --system -r pyproject.toml
 
 # Copy the rest of the code
 COPY . .
 
 # Install the project in editable mode
-# RUN uv pip install -e .
+RUN uv pip install -e .
 
 # Expose the FastAPI port
 EXPOSE 8000
