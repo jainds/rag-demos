@@ -24,7 +24,7 @@ RUN uv pip install --system -r pyproject.toml
 COPY . .
 
 # Install the project in editable mode
-RUN uv pip install -e .
+# RUN uv pip install -e .
 
 # Expose the FastAPI port
 EXPOSE 8000
