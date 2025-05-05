@@ -87,7 +87,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push Docker image (feature branch)
         run: |
-          IMAGE_TAG=feature-${{ github.ref_name }}-${{ github.run_number }}-${{ github.sha }}
+          SANITIZED_BRANCH=$(echo "${{ github.ref_name }}" | tr '/' '-')
+          IMAGE_TAG=feature-${SANITIZED_BRANCH}-${{ github.run_number }}-${{ github.sha }}
           docker build -t ghcr.io/${{ github.repository }}:${IMAGE_TAG} ./rag-guardrails-app
           docker push ghcr.io/${{ github.repository }}:${IMAGE_TAG}
 
