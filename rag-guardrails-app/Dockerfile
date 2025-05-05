@@ -16,6 +16,8 @@ COPY pyproject.toml .
 COPY uv.lock .
 
 # Install dependencies (without project)
+RUN pip install uv
+
 RUN uv pip install -r pyproject.toml
 
 # Copy the rest of the code
