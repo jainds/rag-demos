@@ -6,6 +6,7 @@ from nemoguardrails import LLMRails, RailsConfig
 from langfuse import Langfuse
 from langfuse.decorators import observe, langfuse_context
 import litellm
+import logging
 
 from app.services.document_loader import DocumentLoader
 from app.services.document_indexer import DocumentIndexer
@@ -133,6 +134,7 @@ class RAGService:
         Returns:
             Dictionary containing generated response and retrieved contexts
         """
+        logger = logging.getLogger("nemo_guardrails")
         try:
             # Retrieve relevant contexts
             _, indices = self.indexer.search(query, k=num_contexts)
@@ -150,18 +152,20 @@ class RAGService:
                 context_text = "\n".join(f"• {ctx}" for ctx in contexts)
                 formatted_query["context"] = context_text
             
-            print(f"Sending query to model: {formatted_query}")
+            logger.info(f"[Nemo Guardrails] Calling rails.generate_async with: {formatted_query}")
             
             # Update model parameters for this query
             self.llm_provider.temperature = 0.1
             self.llm_provider.max_tokens = 512
             
-            # Generate response with guardrails
-            response = await self.rails.generate_async(
-                messages=[formatted_query]
-            )
-            
-            print(f"Received response from model: {response}")
+            try:
+                response = await self.rails.generate_async(
+                    messages=[formatted_query]
+                )
+                logger.info(f"[Nemo Guardrails] rails.generate_async output: {response}")
+            except Exception as e:
+                logger.error(f"[Nemo Guardrails] Exception in rails.generate_async: {e}")
+                raise
             
             # Handle empty or invalid responses
             if not response or (isinstance(response, dict) and (not response.get('content') or response.get('content').isspace())):
@@ -175,7 +179,7 @@ class RAGService:
             }
             
         except Exception as e:
-            print(f"Error in RAG query: {str(e)}")
+            logger.error(f"[Nemo Guardrails] Error in RAG query: {str(e)}")
             raise Exception(f"Error generating response: {str(e)}")
 
 class RAGServiceNoGuardrails:

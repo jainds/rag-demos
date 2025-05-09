@@ -43,20 +43,48 @@ openrouter_provider = ChatOpenRouter(
 
 register_llm_provider("custom_llm", ChatOpenRouter)
 
-def get_faiss_index_and_documents(index_path="data/vector_index.faiss", documents_path="data/documents.json"):
+DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
+INDEX_PATH = os.path.join(DATA_DIR, 'vector_index.faiss')
+DOCS_PATH = os.path.join(DATA_DIR, 'documents.json')
+
+def validate_and_repair_documents(documents_path, default_documents):
+    """
+    Check if documents.json is valid (non-empty list of dicts with 'text' field). If not, overwrite with default_documents.
+    """
+    import json
+    import os
+    try:
+        if not os.path.exists(documents_path):
+            raise FileNotFoundError
+        with open(documents_path, "r", encoding="utf-8") as f:
+            docs = json.load(f)
+        if not isinstance(docs, list) or len(docs) == 0 or not all(isinstance(d, dict) and 'text' in d for d in docs):
+            raise ValueError
+    except (FileNotFoundError, json.JSONDecodeError, ValueError):
+        # Overwrite with default
+        with open(documents_path, "w", encoding="utf-8") as f:
+            json.dump(default_documents, f, ensure_ascii=False, indent=2)
+        print(f"[Repair] Overwrote {documents_path} with default documents.")
+
+def get_faiss_index_and_documents(index_path=INDEX_PATH, documents_path=DOCS_PATH):
     if not os.path.exists(index_path):
         raise FileNotFoundError(f"FAISS index not found at {index_path}")
-    if not os.path.exists(documents_path):
-        raise FileNotFoundError(f"Documents file not found at {documents_path}")
-    index = faiss.read_index(index_path)
+    # Validate and repair documents.json if needed
+    default_documents = [
+        {"id": 1, "text": "The Eiffel Tower is a wrought-iron lattice tower on the Champ de Mars in Paris, France."},
+        {"id": 2, "text": "The tower was designed by the French civil engineer Gustave Eiffel."},
+        {"id": 3, "text": "It was constructed from 1887 to 1889 as the centerpiece of the 1889 World's Fair."}
+    ]
+    validate_and_repair_documents(documents_path, default_documents)
     with open(documents_path, "r", encoding="utf-8") as f:
         documents = json.load(f)
-    if not isinstance(documents, list):
-        raise ValueError("Documents JSON must be a list")
+    if not isinstance(documents, list) or len(documents) == 0:
+        raise ValueError("Documents JSON must be a non-empty list")
+    index = faiss.read_index(index_path)
     return index, documents
 
 @observe(as_type="generation")
-async def rag_pipeline(query, index_path="data/vector_index.faiss", documents_path="data/documents.json"):
+async def rag_pipeline(query, index_path=INDEX_PATH, documents_path=DOCS_PATH):
     index, documents = get_faiss_index_and_documents(index_path, documents_path)
     query_vector = model.encode([query])
     _, indices = index.search(query_vector, 2)

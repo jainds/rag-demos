@@ -1,3 +1,5 @@
+import core 
+
 define user express input
   "{{ user_input }}"
 

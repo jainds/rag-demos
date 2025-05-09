@@ -14,6 +14,9 @@ from ragas.metrics import Faithfulness, AnswerRelevancy, ContextPrecision, Conte
 from langchain_huggingface import HuggingFaceEmbeddings
 from app.models.ChatOpenRouter import ChatOpenRouter
 import logging
+import json
+from app.services.document_indexer import DocumentIndexer
+from app.services.document_loader import DocumentLoader
 
 # Ensure we're using the default event loop policy
 asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
@@ -57,19 +60,74 @@ chat_openrouter = ChatOpenRouter(
     top_p=0.95
 )
 
+# Update all data paths to use rag-guardrails-app/data
+DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
+INDEX_PATH = os.path.join(DATA_DIR, 'vector_index.faiss')
+DOCS_PATH = os.path.join(DATA_DIR, 'documents.json')
+
 # Load existing index for both new services
 try:
     rag_service_no_guardrails.load_existing_index(
-        documents_path="data/documents.json",
-        index_path="data/vector_index.faiss"
+        documents_path=DOCS_PATH,
+        index_path=INDEX_PATH
     )
 except Exception as e:
     print(f"Warning: Could not load existing index for no-guardrails: {e}")
 
+@app.on_event("startup")
+async def ensure_index():
+    try:
+        # Load documents
+        loader = DocumentLoader()
+        documents = loader.load_from_json(DOCS_PATH)
+        if not isinstance(documents, list) or len(documents) == 0:
+            raise ValueError("documents.json is empty or malformed.")
+        # Rebuild FAISS index
+        indexer = DocumentIndexer()
+        indexer.create_index(documents)
+        indexer.save_index(INDEX_PATH)
+        # Reload into both RAG services
+        rag_service.load_existing_index(
+            documents_path=DOCS_PATH,
+            index_path=INDEX_PATH
+        )
+        rag_service_no_guardrails.load_existing_index(
+            documents_path=DOCS_PATH,
+            index_path=INDEX_PATH
+        )
+        return {"message": "Index rebuilt and reloaded successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/reindex")
+async def reindex():
+    try:
+        # Load documents
+        loader = DocumentLoader()
+        documents = loader.load_from_json(DOCS_PATH)
+        if not isinstance(documents, list) or len(documents) == 0:
+            raise ValueError("documents.json is empty or malformed.")
+        # Rebuild FAISS index
+        indexer = DocumentIndexer()
+        indexer.create_index(documents)
+        indexer.save_index(INDEX_PATH)
+        # Reload into both RAG services
+        rag_service.load_existing_index(
+            documents_path=DOCS_PATH,
+            index_path=INDEX_PATH
+        )
+        rag_service_no_guardrails.load_existing_index(
+            documents_path=DOCS_PATH,
+            index_path=INDEX_PATH
+        )
+        return {"message": "Index rebuilt and reloaded successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 class IndexRequest(BaseModel):
     source_path: str
     file_type: str = "text"
-    save_dir: Optional[str] = "data"
+    save_dir: Optional[str] = os.path.join(os.path.dirname(__file__), '..', 'data')
 
 @app.get("/health")
 async def health_check():

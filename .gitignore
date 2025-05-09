@@ -181,3 +181,4 @@ data/vector_index.faiss
 rag-guardrails-app/data/vector_index.faiss
 rag-guardrails-app/data/vector_index.faiss
 .faiss
+test_env

@@ -1,6 +1,7 @@
 from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
+import os
 
 # Load a pre-trained embedding model
 model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -21,4 +22,6 @@ index = faiss.IndexFlatL2(dimension)
 index.add(np.array(vectors))
 
 # Save the index
-faiss.write_index(index, "vector_index.faiss")
+DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
+os.makedirs(DATA_DIR, exist_ok=True)
+faiss.write_index(index, os.path.join(DATA_DIR, "vector_index.faiss"))

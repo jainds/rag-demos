@@ -34,6 +34,7 @@ import collections.abc
 from pathlib import Path
 import aiohttp
 from nemoguardrails.actions.llm.utils import LLMCallException
+from fastapi import HTTPException
 
 
 @pytest.fixture(autouse=True)
@@ -955,3 +956,35 @@ async def test_llmrails_generate_async_edge_cases(monkeypatch):
     rails = LLMRails(config, llm=model, verbose=True)
     with pytest.raises(Exception):
         await rails.generate_async(messages=[{"role": "user", "content": "What is the capital of France?"}]) 
+
+def test_chatopenrouter_missing_api_key_raises():
+    # Unset env var and do not pass api_key
+    if "OPENROUTER_API_KEY" in os.environ:
+        del os.environ["OPENROUTER_API_KEY"]
+    model = ChatOpenRouter(model="test-model", api_key=None)
+    with pytest.raises(ValueError, match="OPENROUTER_API_KEY not set"):
+        model._get_api_key()
+
+def test_chatopenrouter_parse_response_malformed_logs_and_raises(caplog):
+    model = ChatOpenRouter(model="test-model", api_key="test-key")
+    class FakeResponse:
+        def json(self):
+            return {"not_choices": []}
+        text = "bad response"
+    with caplog.at_level("ERROR"):
+        with pytest.raises(Exception):
+            model._parse_response(FakeResponse())
+        assert any("Malformed OpenRouter response" in m for m in caplog.text.splitlines())
+
+def test_chatopenrouter_call_api_error_raises(monkeypatch):
+    model = ChatOpenRouter(model="test-model", api_key="test-key")
+    class FakeResponse:
+        status_code = 401
+        text = "unauthorized"
+        def json(self):
+            return {"error": "unauthorized"}
+    monkeypatch.setattr("requests.request", lambda *a, **k: FakeResponse())
+    with pytest.raises(HTTPException) as excinfo:
+        model._call("test prompt")
+    assert excinfo.value.status_code == 401
+    assert "unauthorized" in str(excinfo.value.detail) 

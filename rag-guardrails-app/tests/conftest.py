@@ -115,23 +115,27 @@ def test_openrouter_api_key_validity():
         else:
             break
 
+DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'rag-guardrails-app', 'data')
+
 @pytest.fixture(scope="session", autouse=True)
 def create_faiss_index():
-    """Create a dummy FAISS index at data/vector_index.faiss for integration tests."""
-    os.makedirs("data", exist_ok=True)
+    """Create a dummy FAISS index at rag-guardrails-app/data/vector_index.faiss for integration tests."""
+    os.makedirs(DATA_DIR, exist_ok=True)
     dim = 384
     xb = np.random.random((10, dim)).astype('float32')
     index = faiss.IndexFlatL2(dim)
     index.add(xb)
-    faiss.write_index(index, "data/vector_index.faiss")
+    faiss.write_index(index, os.path.join(DATA_DIR, "vector_index.faiss"))
 
 @pytest.fixture(scope="session", autouse=True)
 def create_documents_json():
-    """Create a dummy documents.json at data/documents.json for integration tests."""
-    os.makedirs("data", exist_ok=True)
-    docs = [
-        {"text": f"Dummy document {i}", "source": f"doc{i}.txt"}
-        for i in range(10)
-    ]
-    with open("data/documents.json", "w", encoding="utf-8") as f:
-        json.dump(docs, f)
+    """Create a dummy documents.json at rag-guardrails-app/data/documents.json for integration tests, only if it does not already exist."""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    docs_path = os.path.join(DATA_DIR, "documents.json")
+    if not os.path.exists(docs_path):
+        docs = [
+            {"text": f"Dummy document {i}", "source": f"doc{i}.txt"}
+            for i in range(10)
+        ]
+        with open(docs_path, "w", encoding="utf-8") as f:
+            json.dump(docs, f)

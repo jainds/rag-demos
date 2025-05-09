@@ -6,7 +6,7 @@ tracing:
 models:
   - type: main
     engine: custom_llm
-    model: opengvlab/internvl3-2b:free
+    model: meta-llama/llama-3.2-1b-instruct
     parameters:
       temperature: 0.1
       max_tokens: 512
@@ -21,6 +21,7 @@ rails:
   output:
     flows:
       - self check output
+      - self check hallucination 
 
 # These are the default prompts released by Meta, except for policy O7, which was added to address direct insults.
 prompts:
@@ -98,7 +99,7 @@ prompts:
   - task: general_chat
     content: |
       You are a helpful AI assistant. Answer the following question using the provided context.
-      Keep your response clear and focused on the question.
+      Keep your response clear and focused on the question. Only use the context to provide the answer.
       
       {% if context %}
       Context information:
@@ -108,4 +109,10 @@ prompts:
       Question: {{ question }}
       
       Answer:
+  
+  - task: self_check_hallucination
+    content: |-
+      You are given a task to identify if the hypothesis is in agreement with the context below.
+      You will only use the contents of the context and not rely on external knowledge.
+      Answer with yes/no. "context": {{ paragraph }} "hypothesis": {{ statement }} "agreement":
       

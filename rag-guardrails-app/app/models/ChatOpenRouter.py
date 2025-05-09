@@ -67,7 +67,7 @@ class ChatOpenRouter(BaseLanguageModel):
     """
     
     model: str = Field(default="opengvlab/internvl3-2b:free", description="The model identifier to use with OpenRouter")
-    api_key: str = Field(default=os.environ.get("OPENROUTER_API_KEY"), description="API key for OpenRouter")
+    api_key: Optional[str] = Field(default=None, description="API key for OpenRouter")
     temperature: float = Field(default=0.1, description="Sampling temperature")
     max_tokens: int = Field(default=1000, description="Maximum number of tokens to generate")
     top_p: float = Field(default=0.95, description="Top p sampling parameter")
@@ -78,7 +78,7 @@ class ChatOpenRouter(BaseLanguageModel):
     def __init__(
         self,
         model: str,
-        api_key: str,
+        api_key: Optional[str] = None,
         temperature: float = 0.1,
         max_tokens: int = 1000,
         top_p: float = 0.95,
@@ -100,6 +100,13 @@ class ChatOpenRouter(BaseLanguageModel):
             **kwargs
         )
 
+    def _get_api_key(self) -> str:
+        api_key = self.api_key or os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            logger.error("OPENROUTER_API_KEY not set.")
+            raise ValueError("OPENROUTER_API_KEY not set in environment or config.")
+        return api_key
+
     def set_run_config(self, run_config=None, **kwargs):
         """Set run configuration for the model."""
         try:
@@ -108,12 +115,11 @@ class ChatOpenRouter(BaseLanguageModel):
                 config_dict.update(kwargs)
             else:
                 config_dict = kwargs
-
             for key, value in config_dict.items():
                 if hasattr(self, key):
                     setattr(self, key, value)
         except Exception as e:
-            print(f"Warning: Error in set_run_config: {str(e)}")
+            logger.warning(f"Error in set_run_config: {str(e)}")
         return self
 
     @property
@@ -130,56 +136,57 @@ class ChatOpenRouter(BaseLanguageModel):
     def _llm_type(self) -> str:
         return "openrouter"
 
+    def _parse_response(self, response) -> str:
+        try:
+            data = response.json()
+            if "choices" not in data or not data["choices"]:
+                raise ValueError("No choices in OpenRouter response")
+            return data["choices"][0]["message"]["content"]
+        except Exception as e:
+            logger.error(f"Malformed OpenRouter response: {getattr(response, 'text', str(response))}")
+            raise
+
     def _call(
         self,
-        prompt: Union[str, any],
+        prompt: Union[str, Any],
         stop: Optional[List[str]] = None,
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> str:
         logger.debug(f"ChatOpenRouter._call called with prompt: {prompt}")
         try:
-            prompt = prompt.text  # Try .text (used in some LangChain versions)
-        except AttributeError:
-            try:
-                prompt = prompt.content  # Try .content (used in others)
-            except AttributeError:
-                pass  # Leave as-is if not a prompt object
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "HTTP-Referer": os.getenv("SITE_URL", "http://localhost:8000"),
-            "X-Title": "Your Application Name"
-        }
-
-        # Filter out non-serializable kwargs
-        filtered_kwargs = {k: v for k, v in kwargs.items() if not isinstance(v, (BaseCallbackManager, CallbackManagerForLLMRun))}
-
-        payload = {
-            "model": self.model,
-            "messages": [{"role": "user", "content": str(prompt)}],
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
-            **filtered_kwargs
-        }
-
-        response = request(
-            method="POST",
-            url=f"{self.base_url}/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=30,
-        )
-
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=response.text
+            prompt = getattr(prompt, 'text', getattr(prompt, 'content', prompt))
+            api_key = self._get_api_key()
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "HTTP-Referer": os.getenv("SITE_URL", "http://localhost:8000"),
+                "X-Title": "Your Application Name"
+            }
+            filtered_kwargs = {k: v for k, v in kwargs.items() if not isinstance(v, (BaseCallbackManager, CallbackManagerForLLMRun))}
+            payload = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": str(prompt)}],
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+                **filtered_kwargs
+            }
+            response = request(
+                method="POST",
+                url=f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=30,
             )
-
-        result = response.json()
-        logger.debug(f"ChatOpenRouter._call returning type: {type(result['choices'][0]['message']['content'])}")
-        return result["choices"][0]["message"]["content"]
+            if response.status_code != 200:
+                logger.error(f"OpenRouter API error ({response.status_code}): {response.text}")
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=response.text
+                )
+            return self._parse_response(response)
+        except Exception as e:
+            logger.exception("Error in ChatOpenRouter._call")
+            raise
 
     def _ensure_llmresult(self, result):
         if isinstance(result, LLMResult):
@@ -188,20 +195,6 @@ class ChatOpenRouter(BaseLanguageModel):
             return LLMResult(generations=[[GenerationChunk(text=result)]])
         raise ValueError(f"Unexpected LLM result type: {type(result)}")
 
-    async def _agenerate(
-        self,
-        prompts: List[str],
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
-        **kwargs: Any
-    ) -> LLMResult:
-        """Generate results for multiple prompts asynchronously."""
-        generations = []
-        for prompt in prompts:
-            content = await self._async_call(prompt, stop, run_manager, **kwargs)
-            generations.append([GenerationChunk(text=content)])
-        return LLMResult(generations=generations)
-    
     async def _async_call(
         self,
         prompt: Union[str, PromptValue],
@@ -211,67 +204,60 @@ class ChatOpenRouter(BaseLanguageModel):
     ) -> str:
         logger.debug(f"ChatOpenRouter._async_call called with prompt: {prompt}")
         try:
-            prompt = prompt.text  # Try .text (used in some LangChain versions)
-        except AttributeError:
-            try:
-                prompt = prompt.content  # Try .content (used in others)
-            except AttributeError:
-                pass  # Leave as-is if not a prompt object
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "HTTP-Referer": os.getenv("SITE_URL", "http://localhost:8000"),
-            "X-Title": "Your Application Name"
-        }
-
-        # Filter out non-serializable kwargs
-        filtered_kwargs = {k: v for k, v in kwargs.items() if not isinstance(v, (BaseCallbackManager, AsyncCallbackManagerForLLMRun))}
-
-        payload = {
-            "model": self.model,
-            "messages": [{"role": "user", "content": str(prompt)}],
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
-            **filtered_kwargs
-        }
-
-        import asyncio
-        max_retries = 5
-        for attempt in range(max_retries):
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self.base_url}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                    timeout=30,
-                ) as response:
-                    text = await response.text()
-                    if response.status == 429 or (text and 'rate limit' in text.lower()):
-                        if attempt < max_retries - 1:
-                            logger.warning(f"[OpenRouter] Rate limit hit (attempt {attempt+1}/{max_retries}). Waiting 60 seconds before retry...")
-                            await asyncio.sleep(60)
-                            continue
-                        else:
-                            raise HTTPException(status_code=429, detail=f"OpenRouter API rate limit exceeded after {max_retries} retries: {text}")
-                    if response.status != 200:
-                        raise HTTPException(
-                            status_code=response.status,
-                            detail=text
-                        )
-                    result = await response.json()
-                    # Defensive: handle malformed response or rate limit in JSON
-                    if not result or "choices" not in result or not result["choices"]:
-                        # Check for rate limit in error JSON
-                        if "error" in result and "rate limit" in str(result["error"]).lower():
+            prompt = getattr(prompt, 'text', getattr(prompt, 'content', prompt))
+            api_key = self._get_api_key()
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "HTTP-Referer": os.getenv("SITE_URL", "http://localhost:8000"),
+                "X-Title": "Your Application Name"
+            }
+            filtered_kwargs = {k: v for k, v in kwargs.items() if not isinstance(v, (BaseCallbackManager, AsyncCallbackManagerForLLMRun))}
+            payload = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": str(prompt)}],
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+                **filtered_kwargs
+            }
+            import asyncio
+            max_retries = 5
+            for attempt in range(max_retries):
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        f"{self.base_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=30,
+                    ) as response:
+                        text = await response.text()
+                        if response.status == 429 or (text and 'rate limit' in text.lower()):
                             if attempt < max_retries - 1:
-                                logger.warning(f"[OpenRouter] Rate limit error in JSON (attempt {attempt+1}/{max_retries}). Waiting 60 seconds before retry...")
+                                logger.warning(f"[OpenRouter] Rate limit hit (attempt {attempt+1}/{max_retries}). Waiting 60 seconds before retry...")
                                 await asyncio.sleep(60)
                                 continue
                             else:
-                                raise HTTPException(status_code=429, detail=f"OpenRouter API rate limit exceeded after {max_retries} retries: {result}")
-                        raise ValueError(f"Malformed response from OpenRouter: {result}")
-                    logger.debug(f"ChatOpenRouter._async_call returning type: {type(result['choices'][0]['message']['content'])}")
-                    return result["choices"][0]["message"]["content"]
+                                raise HTTPException(status_code=429, detail=f"OpenRouter API rate limit exceeded after {max_retries} retries: {text}")
+                        if response.status != 200:
+                            logger.error(f"OpenRouter API error ({response.status}): {text}")
+                            raise HTTPException(
+                                status_code=response.status,
+                                detail=text
+                            )
+                        result = await response.json()
+                        if not result or "choices" not in result or not result["choices"]:
+                            if "error" in result and "rate limit" in str(result["error"]).lower():
+                                if attempt < max_retries - 1:
+                                    logger.warning(f"[OpenRouter] Rate limit error in JSON (attempt {attempt+1}/{max_retries}). Waiting 60 seconds before retry...")
+                                    await asyncio.sleep(60)
+                                    continue
+                                else:
+                                    raise HTTPException(status_code=429, detail=f"OpenRouter API rate limit exceeded after {max_retries} retries: {result}")
+                            raise ValueError(f"Malformed response from OpenRouter: {result}")
+                        logger.debug(f"ChatOpenRouter._async_call returning type: {type(result['choices'][0]['message']['content'])}")
+                        return result["choices"][0]["message"]["content"]
+        except Exception as e:
+            logger.exception("Error in ChatOpenRouter._async_call")
+            raise
 
     def _generate(
         self,
@@ -384,7 +370,7 @@ class ChatOpenRouter(BaseLanguageModel):
         try:
             prompt = str(prompt)  # Ensure prompt is a string
             headers = {
-                "Authorization": f"Bearer {self.api_key}",
+                "Authorization": f"Bearer {self._get_api_key()}",
                 "HTTP-Referer": os.getenv("SITE_URL", "http://localhost:8000"),
                 "X-Title": "Your Application Name"
             }
