@@ -338,8 +338,25 @@ class ChatOpenRouter(BaseLanguageModel):
             for prompt in prompts:
                 # Unwrap PromptValue if present
                 if isinstance(prompt, PromptValue):
-                    prompt = prompt.text  # or prompt.content
-                content = await self._async_call(prompt, stop=stop, run_manager=run_manager, **kwargs)
+                    # Handle different types of PromptValue
+                    try:
+                        if hasattr(prompt, "to_messages"):
+                            # Handle ChatPromptValue
+                            messages = prompt.to_messages()
+                            prompt_text = "\n".join([str(msg.content) for msg in messages])
+                        elif hasattr(prompt, "to_string"):
+                            # Handle StringPromptValue
+                            prompt_text = prompt.to_string()
+                        else:
+                            # Fallback
+                            prompt_text = str(prompt)
+                    except Exception as e:
+                        logger.error(f"Error extracting content from PromptValue: {e}")
+                        prompt_text = str(prompt)
+                else:
+                    prompt_text = str(prompt)
+                
+                content = await self._async_call(prompt_text, stop=stop, run_manager=run_manager, **kwargs)
                 generations.append([GenerationChunk(text=content)])
             return self._ensure_llmresult(LLMResult(generations=generations))
 
