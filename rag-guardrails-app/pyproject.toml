@@ -62,7 +62,7 @@ dependencies = [
     "distro==1.9.0",
     "emoji==2.14.1",
     "eval-type-backport==0.2.2",
-    "fastembed==0.4.0",
+    "fastembed==0.7.0",
     "filelock==3.18.0",
     "filetype==1.2.0",
     "flatbuffers==25.2.10",
