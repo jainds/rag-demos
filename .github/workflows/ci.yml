@@ -14,7 +14,7 @@ jobs:
     name: Run unit tests (feature branch)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -45,7 +45,7 @@ jobs:
     name: Run all tests (PR to master or push to master)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -76,7 +76,7 @@ jobs:
     name: Docker build (feature branch)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Log in to GitHub Container Registry
@@ -96,7 +96,7 @@ jobs:
     name: Docker build and push (production)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Log in to GitHub Container Registry
